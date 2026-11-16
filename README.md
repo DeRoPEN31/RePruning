@@ -181,7 +181,7 @@ and keeps the project going.
 reports, false positives and ideas are all welcome, and every one of them is read:
 
 - [Issue tracker](https://github.com/DeRoPEN31/RePruning/issues) — bugs, false positives and feature requests
-- [Telegram](https://t.me/%D1%82%D0%B2%D0%BE%D0%B9_%D0%BD%D0%B8%D0%BA) — quick questions and personal support
+- [Telegram](https://t.me/DeRoPEN_Q31) — quick questions and personal support
 
 **Want to see more of my work?**
 
