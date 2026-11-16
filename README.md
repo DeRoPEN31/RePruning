@@ -50,8 +50,8 @@ will not initialise on a stock engine.
 2. Copy the module into your plugins folder:
 
    ```
-   addons/amxmodx/plugins/RePruning.so   # Linux
-   addons/amxmodx/plugins/RePruning.dll   # Windows
+   addons/amxmodx/plugins/repruning.amxx - compiled plugin code
+   addons/amxmodx/scripting/repruning.sma - main plugin code
    ```
 
 3. Add it to `addons/amxmodx/configs/plugins.ini`:
