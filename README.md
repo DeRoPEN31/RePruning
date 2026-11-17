@@ -160,7 +160,7 @@ this has to be done on the client side:
 
 - Website — [deropen.fun](https://deropen.fun)
 - Repository — [github.com/DeRoPEN31/RePruning](https://github.com/DeRoPEN31/RePruning)
-- Telegram — [твой_ник](https://t.me/%D1%82%D0%B2%D0%BE%D0%B9_%D0%BD%D0%B8%D0%BA)
+- Telegram — [DeRoPEN_DEv](https://t.me/%D1%82%D0%B2%D0%BE%D0%B9_%D0%BD%D0%B8%D0%BA)
 
 ## License
 
