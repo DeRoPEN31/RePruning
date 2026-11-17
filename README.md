@@ -57,14 +57,14 @@ will not initialise on a stock engine.
 3. Add it to `addons/amxmodx/configs/plugins.ini`:
 
    ```ini
-   RePruning
+   repruning
    ```
 
-4. Copy `RePruning.cfg` and `pruning_files.cfg` to `addons/amxmodx/configs/`, then load the
+4. Copy `repruning.cfg` and `pruning_files.cfg` to `addons/amxmodx/configs/`, then load the
    config from `server.cfg`, after the AMX Mod X plugins are started:
 
    ```cfg
-   exec addons/amxmodx/configs/RePruning.cfg
+   exec addons/amxmodx/configs/repruning.cfg
    ```
 
 5. Restart the server.
@@ -72,7 +72,7 @@ will not initialise on a stock engine.
 ## Configuration
 
 Every setting is a switch — `0` disables the feature, `1` enables it. All options live in
-`addons/amxmodx/configs/RePruning.cfg`, which ships with the release and documents every cvar
+`addons/amxmodx/configs/repruning.cfg`, which ships with the release and documents every cvar
 inline.
 
 | Cvar | Default | Description |
