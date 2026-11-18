@@ -219,7 +219,7 @@ admin for help.
 
 - Website — [deropen.fun](https://deropen.fun)
 - Repository — [github.com/DeRoPEN31/RePruning](https://github.com/DeRoPEN31/RePruning)
-- Telegram — [DeRoPEN_Q31](https://t.me/DeRoPEN_DEv)
+- Telegram — [DeRoPEN_DEv](https://t.me/DeRoPEN_DEv)
 
 ## License
 
