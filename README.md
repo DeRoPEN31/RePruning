@@ -1,6 +1,6 @@
 # RePruning
 
-![Version](https://img.shields.io/badge/version-0.0.1--Alpha-blue)
+![Version](https://img.shields.io/badge/version-0.0.2--Alpha-blue)
 ![Game](https://img.shields.io/badge/game-Counter--Strike%201.6-orange)
 ![Platform](https://img.shields.io/badge/platform-ReAPI%20%7C%20ReHLDS%20%7C%20ReGameDLL-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -25,58 +25,90 @@ not want, instead of shipping a separate plugin for every small change.
 - **Corpses** — hide dead bodies
 - **Dropped weapons** — clean up dropped guns and defuse kits
 - **Console & hints** — silence noisy console messages and HUD hint popups
-- **File checks** — verify client files by MD5 against a server-side list
+- **File checks** — verify client files by MD5 against a server-side list, with kicks and temporary bans
+- **Logging & status** — configurable log levels and a live status command
 
 Every feature is a separate switch, so you enable only what your server needs. Nothing in the
 game DLLs has to be modified.
 
 ## Requirements
 
-| Component    | Version | Required |
-| :----------- | :------ | :------: |
-| AMX Mod X    | 1.10+   |    yes   |
-| Metamod-r    | 1.3+    |    yes   |
-| ReHLDS       | 3.x     |    yes   |
-| ReGameDLL    | 5.x     |    yes   |
-| ReAPI        | 5.x     |    yes   |
+| Component    | Version            | Required |
+| :----------- | :----------------- | :------: |
+| AMX Mod X    | 1.10+              |    yes   |
+| Metamod-r    | 1.3.0.149          |    yes   |
+| ReHLDS       | 3.15.0.896-dev     |    yes   |
+| ReGameDLL    | 5.30.0.814-dev     |    yes   |
+| ReAPI        | 5.29.0.359-dev     |    yes   |
 
-Install the modules above before loading RePruning — the plugin works through ReAPI hooks and
-will not initialise on a stock engine.
+HLDS and ReHLDS are both supported. The plugin works through ReAPI hooks and does not initialise
+on a stock engine.
 
 ## Installation
 
 1. Download the latest build from [Releases](https://github.com/DeRoPEN31/RePruning/releases)
-   or from [deropen.fun](https://deropen.fun).
-2. Copy the module into your plugins folder:
+   or from [deropen.fun](https://deropen.fun). The archive contains:
 
    ```
-   addons/amxmodx/plugins/repruning.amxx - compiled plugin code
-   addons/amxmodx/scripting/repruning.sma - main plugin code
+   addons/amxmodx/plugins/repruning.amxx      # compiled plugin — the only file the server needs
+   addons/amxmodx/configs/pruning.cfg         # configuration, every option documented inline
+   addons/amxmodx/configs/pruning_files.cfg   # list of client files for the MD5 check
+   source/repruning.sma                       # plugin source — not needed on the server
    ```
 
+2. Unpack the archive — it contains the `RePruning v0.0.2/` folder — and copy its contents into
+   the game server folder, so that the plugin ends up in `addons/amxmodx/plugins/` and the configs
+   in `addons/amxmodx/configs/`.
 3. Add it to `addons/amxmodx/configs/plugins.ini`:
 
    ```ini
    repruning
    ```
 
-4. Copy `repruning.cfg` and `pruning_files.cfg` to `addons/amxmodx/configs/`, then load the
-   config from `server.cfg`, after the AMX Mod X plugins are started:
+4. Load the config from `server.cfg`, after the AMX Mod X plugins are started:
 
    ```cfg
-   exec addons/amxmodx/configs/repruning.cfg
+   exec addons/amxmodx/configs/pruning.cfg
    ```
 
 5. Restart the server.
 
+## Repository layout
+
+```
+addons/amxmodx/configs/pruning.cfg       — configuration, every option documented inline
+addons/amxmodx/configs/pruning_files.cfg — list of client files for the MD5 check
+source/repruning.sma                     — plugin source
+```
+
+## Commands
+
+| Command | Access | Description |
+| :------ | :----- | :---------- |
+| `amx_pruning_status` | `ADMIN_CFG` | Show the current status of the plugin — enabled modules, uptime, rounds, file checks, mismatches, kicks, bans and errors. |
+
+## Logging
+
+All plugin events are written to `addons/amxmodx/logs/RePruning.log`. The detail level is set
+with `pruning_log_level`:
+
+| Level | What is logged |
+| :---: | :------------- |
+| `0` | Logging is off |
+| `1` | Errors only |
+| `2` | Errors and actions — kicks, bans, file checks (default) |
+| `3` | Verbose — every event |
+
 ## Configuration
 
 Every setting is a switch — `0` disables the feature, `1` enables it. All options live in
-`addons/amxmodx/configs/repruning.cfg`, which ships with the release and documents every cvar
+`addons/amxmodx/configs/pruning.cfg`, which ships with the release and documents every cvar
 inline.
 
 | Cvar | Default | Description |
 | :--- | :-----: | :---------- |
+| **Logging** | | |
+| `pruning_log_level` | `2` | Detail level of `addons/amxmodx/logs/RePruning.log`: `0` — off, `1` — errors only, `2` — errors and actions (default), `3` — verbose. |
 | **Buying & money** | | |
 | `pruning_buy` | `1` | Block buying: the `B` menu, all weapon / armour / grenade commands, autobuy and rebuy. A player cannot buy anything. |
 | `pruning_buyzone_remove` | `1` | Remove buy zones (`func_buyzone`) from the map. The `$` icon disappears from the HUD as well. |
@@ -106,9 +138,14 @@ inline.
 | **File checks (MD5)** | | |
 | `pruning_files` | `0` | Enable the client file check against the list in `configs/pruning_files.cfg`. **Disabled by default** — enable it consciously and only after setting up the file list. |
 | `pruning_files_kick` | `1` | Kick the client on a hash mismatch (the engine usually blocks it on its own, this cvar is a safety net). Set to `0` to only write to `logs/`. |
+| `pruning_files_fix` | `1` | Send the Steam Cloud / MD5 fix guide to a client with a mismatched file — a message in the chat and an in-game MOTD with the steps to restore the file. |
+| `pruning_files_maxfails` | `3` | How many mismatches a client is allowed before it gets banned. `0` — never ban. |
+| `pruning_files_bantime` | `30` | Duration of the temporary ban in minutes. `0` — kick only, without a ban. |
 
 The bomb can be removed in two ways — `pruning_bomb_give` and `pruning_bomb_remove` — you can
 enable either one of them or both at the same time.
+
+The plugin also registers a read-only cvar `repruning_version` with the version of the build.
 
 Settings are applied on plugin load — edit the config and restart the server to apply them.
 
@@ -119,12 +156,29 @@ using MD5 hashes.
 
 1. Put a reference copy of every file you want to check into the game folder of the **server**
    itself, at the exact same path.
-2. List the paths in `addons/amxmodx/configs/pruning_files.cfg`, one path per line, relative to
-   the game directory.
+2. List the paths in `addons/amxmodx/configs/pruning_files.cfg`, one entry per line, in the
+   `exactfile "path/to/file"` format. The paths are **relative to the `cstrike` folder**:
+
+   ```
+   exactfile "cl_dlls/client.dll"
+   exactfile "models/v_m4a1.mdl"
+   ```
+
 3. Enable `pruning_files 1` and restart the server.
 
-On a mismatch the event is written to `logs/`, and the player is kicked if
-`pruning_files_kick 1` is set.
+On a mismatch the event is written to `logs/RePruning.log`, and the player is kicked if
+`pruning_files_kick 1` is set. After `pruning_files_maxfails` mismatches the player receives a
+temporary ban for `pruning_files_bantime` minutes. With `pruning_files_fix 1` the client also
+gets the fix guide in the chat and in an in-game MOTD.
+
+Malformed entries, unknown commands and missing reference files are detected on startup and
+written to the log — the check is skipped for those entries instead of failing silently.
+
+Two details about the temporary ban: it is issued by the **engine ban system**
+(`banid` / `writeid` → `addons/cstrike/banned.cfg`), not by the AMX Mod X ban list, so it needs
+a writable `banned.cfg` and `exec banned.cfg` in `server.cfg` to be applied after a restart.
+The mismatch counter is kept in memory per SteamID, so it survives a reconnect but not a restart
+of the server.
 
 This is how modified and injected client files are caught — including the auto-executed files
 such as `autoexec.cfg` or `userconfig.cfg`. Keep in mind that a server cannot clean a player's
@@ -146,21 +200,26 @@ this has to be done on the client side:
 
 `10` is the Steam application ID of Counter-Strike (CS 1.6).
 
+With `pruning_files_fix 1` the plugin sends exactly these steps to a player with a mismatched
+file — as a chat message and as an in-game MOTD, so the player can fix it without asking the
+admin for help.
+
 ## Notes
 
 - The plugin does not replace the stock cvars — it removes or disables the behaviour they
   control.
 - `pruning_console` also silences the console output of other plugins. Keep it off if you rely
   on `client_print(id, print_console, ...)`.
-- `pruning_files` can kick players. Configure the file list first, then enable it.
-- Keep a backup of `RePruning.cfg` before editing — it is overwritten on every update.
+- `pruning_files` can kick and ban players. Configure the file list first, then enable it.
+- The ban counter is tracked per client by SteamID and user ID, so a reconnect does not reset it.
+- Keep a backup of `pruning.cfg` before editing — it is overwritten on every update.
 - Report problems and request features in the [issue tracker](https://github.com/DeRoPEN31/RePruning/issues).
 
 ## Links
 
 - Website — [deropen.fun](https://deropen.fun)
 - Repository — [github.com/DeRoPEN31/RePruning](https://github.com/DeRoPEN31/RePruning)
-- Telegram — [DeRoPEN_DEv](https://t.me/%D1%82%D0%B2%D0%BE%D0%B9_%D0%BD%D0%B8%D0%BA)
+- Telegram — [DeRoPEN_Q31](https://t.me/DeRoPEN_DEv)
 
 ## License
 
@@ -181,7 +240,7 @@ and keeps the project going.
 reports, false positives and ideas are all welcome, and every one of them is read:
 
 - [Issue tracker](https://github.com/DeRoPEN31/RePruning/issues) — bugs, false positives and feature requests
-- [Telegram](https://t.me/DeRoPEN_Q31) — quick questions and personal support
+- [Telegram](https://t.me/DeRoPEN_DEv) — quick questions and personal support
 
 **Want to see more of my work?**
 
