@@ -1,0 +1,25 @@
+//Name: RePruning v0.0.3 V1
+//Author: DeRoPEN_DEv
+//Platform: ReHLDS
+//Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
+//Description: Fichier de langue — français (fr) ; format : KEY = texte
+//Reminder: La langue est sélectionnée par la cvar pruning_lang (code du dossier du pays)
+//Sites: github.com/DeRoPEN31 and deropen.fun
+
+INIT_1 = Le plugin a été initialisé avec succès...
+INIT_2 = Le plugin a été démarré avec succès
+INIT_3 = La version actuelle pour le moment est %s
+FILE_MISMATCH = Le fichier "%s" n'a pas passé la vérification MD5.
+FIX_OPEN = Un guide de correction (Steam Cloud) va s'ouvrir.
+MOTD_TITLE = RePruning : guide de correction
+MOTD_HEAD = Fichier non conforme : %s
+MOTD_HOWTO = Comment corriger (Steam Cloud / MD5) :
+MOTD_STEP1 = 1. Quittez le jeu.
+MOTD_STEP2 = 2. Supprimez le fichier indiqué du dossier cstrike (ou réinstallez le jeu).
+MOTD_STEP3 = 3. Désactivez Steam Cloud pour CS 1.6 : Steam -> Bibliothèque -> CS 1.6 -> Propriétés -> Général -> décochez "Conserver les sauvegardes de jeux dans Steam Cloud" — sinon Steam restaurera le fichier.
+MOTD_STEP4 = 4. Vérifiez l'intégrité des fichiers : Propriétés -> Fichiers locaux -> "Vérifier l'intégrité des fichiers du jeu".
+MOTD_STEP5 = 5. Reconnectez-vous au serveur.
+MOTD_NOTE = Si le fichier est votre config personnelle (userconfig.cfg), prévenez l'admin : ces fichiers diffèrent légitimement et ne doivent pas figurer dans la liste de vérification.
+KICK_MISMATCH = fichier non conforme : %s
+KICK_BAN = fichier non conforme, banni %d min : %s
+RELOADED = Configuration rechargée : pruning.cfg, langues et mémoire des bans.

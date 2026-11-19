@@ -1,0 +1,25 @@
+//Name: RePruning v0.0.3 V1
+//Author: DeRoPEN_DEv
+//Platform: ReHLDS
+//Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
+//Description: Language file — English (us); format: KEY = text
+//Reminder: The language is selected by the cvar pruning_lang (country folder code)
+//Sites: github.com/DeRoPEN31 and deropen.fun
+
+INIT_1 = The plugin has been successfully initialized...
+INIT_2 = The plugin has been successfully started
+INIT_3 = The current version at the moment %s
+FILE_MISMATCH = File "%s" failed the MD5 check.
+FIX_OPEN = A fix guide (Steam Cloud) is opening now.
+MOTD_TITLE = RePruning: fix guide
+MOTD_HEAD = File failed the check: %s
+MOTD_HOWTO = How to fix (Steam Cloud / MD5):
+MOTD_STEP1 = 1. Exit the game.
+MOTD_STEP2 = 2. Delete the specified file from the cstrike folder (or reinstall the game).
+MOTD_STEP3 = 3. Disable Steam Cloud for CS 1.6: Steam -> Library -> CS 1.6 -> Properties -> General -> uncheck "Keep games saves in the Steam Cloud" — otherwise Steam will restore the file.
+MOTD_STEP4 = 4. Verify the integrity of the files: Properties -> Local Files -> "Verify integrity of game files".
+MOTD_STEP5 = 5. Log in to the server again.
+MOTD_NOTE = If the file is your personal config (userconfig.cfg), tell the admin: such files legitimately differ and must not be in the check list.
+KICK_MISMATCH = file mismatch: %s
+KICK_BAN = file mismatch, banned %d min: %s
+RELOADED = Config reloaded: pruning.cfg, languages and ban memory.

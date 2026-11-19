@@ -1,6 +1,6 @@
-//Name: RePruning v0.0.2 Alpha
+//Name: RePruning v0.0.3 V1
 //Author: DeRoPEN_DEv
-//Platforms: HLDS and ReHLDS
+//Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
 //Description: A plugin for removing, cleaning up, or disabling various features on CS 1.6 servers
 //Reminder: Use 0 to disable the feature, and 1 to enable it
@@ -12,10 +12,8 @@
 #include <reapi>
 
 #define PLUGIN  "RePruning"
-#define VERSION "v0.0.2 Alpha"
+#define VERSION "v0.0.3 V1"
 #define AUTHOR  "DeRoPEN_DEv"
-
-#define DROP_SCAN_PERIOD    2.0
 
 #define LOG_ERROR   1
 #define LOG_INFO    2
@@ -53,6 +51,13 @@ new g_iMismatchTotal, g_iKickTotal, g_iBanTotal;
 new g_iStartSystime;
 new Trie:g_tMismatch;
 
+new Trie:g_tLang;
+new Trie:g_tBanMem;
+new g_iLangCount, g_iLangKeys;
+new g_iBanMemHits;
+new g_pLang;
+new g_szBanMemPath[128];
+
 new g_iMsgMoney, g_iMsgStatusIcon, g_iMsgSendAudio;
 new g_iMsgTextMsg, g_iMsgClCorpse;
 new g_iMsgHudText, g_iMsgHudTextPro, g_iMsgHudTextArgs;
@@ -86,6 +91,7 @@ public plugin_init()
     g_pFilesMaxFails  = register_cvar("pruning_files_maxfails",  "3");
     g_pFilesBanTime   = register_cvar("pruning_files_bantime",   "30");
     g_pLogLevel       = register_cvar("pruning_log_level",       "2");
+    g_pLang           = register_cvar("pruning_lang",            "us");
 
     static const szBuyCmds[][] = {
         "buy", "buyequip",
@@ -114,6 +120,8 @@ public plugin_init()
     RegisterHookChain(RG_BuyGunAmmo,                  "OnBuyGunAmmo_Pre",     false);
 
     RegisterHookChain(RG_CBasePlayer_Spawn,           "OnPlayerSpawn_Post",   true);
+    RegisterHookChain(RG_CBasePlayer_Killed,          "OnPlayerKilled_Post",  true);
+    RegisterHookChain(RG_CBasePlayer_DropPlayerItem,  "OnPlayerDropItem_Post", true);
     RegisterHookChain(RG_CSGameRules_RestartRound,    "OnRestartRound_Post",  true);
     RegisterHookChain(RG_CSGameRules_CleanUpMap,      "OnCleanUpMap_Post",    true);
 
@@ -137,16 +145,20 @@ public plugin_init()
     if (g_iMsgHudTextPro)  register_message(g_iMsgHudTextPro,  "Message_HudText");
     if (g_iMsgHudTextArgs) register_message(g_iMsgHudTextArgs, "Message_HudText");
 
-    register_concmd("amx_pruning_reload", "ConCmd_Reload", ADMIN_CFG, " - reread configs/pruning.cfg");
-    register_concmd("amx_pruning_status", "ConCmd_Status", ADMIN_CFG, " - module status, counters, errors");
+    register_concmd("amx_pruning_reload", "ConCmd_Reload", ADMIN_CFG, " - reload pruning.cfg, languages and ban memory");
+    register_concmd("amx_pruning_status", "ConCmd_Status", ADMIN_CFG, " - module state, counters, errors");
 
     g_tMismatch = TrieCreate();
+    g_tLang = TrieCreate();
+    g_tBanMem = TrieCreate();
+
+    register_library("repruning");
 }
 
 public plugin_cfg()
 {
 
-    new szLogsDir[96];
+    new szLogsDir[96], szFmt[192], szMsg[224];
     get_localinfo("amxx_logsdir", szLogsDir, charsmax(szLogsDir));
     formatex(g_szLogPath, charsmax(g_szLogPath), "%s/RePruning.log", szLogsDir);
     g_iStartSystime = get_systime();
@@ -164,15 +176,24 @@ public plugin_cfg()
 
     PerformCleanup();
     ApplyFileChecks();
+    OnDropCleanup();
+    LoadLanguages();
+    LoadBanMemory();
 
-    set_task(DROP_SCAN_PERIOD, "Task_ScanDrops", _, _, _, "b");
-
-    server_print("[RePruning] v%s loaded", VERSION);
+    Lang("INIT_1", szMsg, charsmax(szMsg));
+    server_print("[RePruning] %s", szMsg);
+    Lang("INIT_2", szMsg, charsmax(szMsg));
+    server_print("[RePruning] %s", szMsg);
+    Lang("INIT_3", szFmt, charsmax(szFmt));
+    formatex(szMsg, charsmax(szMsg), szFmt, VERSION);
+    server_print("[RePruning] %s", szMsg);
+    server_print("[RePruning] API surface: reserved (planned external module — not in core)");
 
     new szMap[48];
     get_mapname(szMap, charsmax(szMap));
-    Pruning_Log(LOG_INFO, "===== RePruning v%s | map %s | log level %d | file checks %d =====",
-        VERSION, szMap, get_pcvar_num(g_pLogLevel), g_iFileChecks);
+    Pruning_Log(LOG_INFO, "===== RePruning v%s | map %s | log level %d | file checks %d | languages %d | ban memory %d =====",
+        VERSION, szMap, get_pcvar_num(g_pLogLevel), g_iFileChecks, g_iLangCount, TrieGetSize(g_tBanMem));
+    Pruning_Log(LOG_INFO, "api trace: public natives/forwards planned as a separate API module (not included in core)");
 }
 
 public ClCmd_Buy(id)
@@ -306,6 +327,7 @@ public OnRestartRound_Post()
 {
     g_iRounds++;
     PerformCleanup();
+    OnDropCleanup();
 
     set_task(1.0, "Task_DelayedClean");
 }
@@ -443,7 +465,19 @@ public Message_ClCorpse(iMsgId, iDest, iEnt)
     return PLUGIN_CONTINUE;
 }
 
-public Task_ScanDrops()
+public OnPlayerKilled_Post(const id)
+{
+    Pruning_Log(LOG_DEBUG, "death event: player #%d — drop cleanup", id);
+    OnDropCleanup();
+}
+
+public OnPlayerDropItem_Post(const id, const szItemName[])
+{
+    Pruning_Log(LOG_DEBUG, "drop event: player #%d dropped ^"%s^"", get_user_userid(id), szItemName);
+    OnDropCleanup();
+}
+
+OnDropCleanup()
 {
     if (get_pcvar_num(g_pDropWeapons))
         RemoveGroundWeapons();
@@ -578,44 +612,219 @@ public inconsistent_file(id, const filename[], reason[64])
     if (iMaxFails > 0 && iBanTime > 0 && iFails >= iMaxFails) {
 
         server_cmd("banid %d ^"%s^"; writeid", iBanTime, szAuth);
+        BanMemRemember(szAuth, iBanTime);
         g_iBanTotal++;
         Pruning_Log(LOG_INFO, "ban %d min: %s (%s) — %d file mismatches", iBanTime, szName, szAuth, iFails);
+
+        new szTpl[128], szKick[192];
+        Lang("KICK_BAN", szTpl, charsmax(szTpl));
+        formatex(szKick, charsmax(szKick), szTpl, iBanTime, filename);
         g_iKickTotal++;
-        server_cmd("kick #%d ^"file mismatch, banned %d min: %s^"", get_user_userid(id), iBanTime, filename);
+        server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
     } else if (get_pcvar_num(g_pFilesKick)) {
 
         g_iKickTotal++;
-        server_cmd("kick #%d ^"file mismatch: %s^"", get_user_userid(id), filename);
+        new szTpl[128], szKick[192];
+        Lang("KICK_MISMATCH", szTpl, charsmax(szTpl));
+        formatex(szKick, charsmax(szKick), szTpl, filename);
+        server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
     }
 }
 
 SendFixGuide(id, const szFile[])
 {
-    client_print(id, print_chat, "[RePruning] File ^"%s^" failed the MD5 check.", szFile);
-    client_print(id, print_chat, "[RePruning] A fix guide (Steam Cloud) is opening now.");
+    new szTpl[224], szMsg[256], szPart[384], szTitle[64], szMOTD[1920], szKey[16];
+
+    Lang("FILE_MISMATCH", szTpl, charsmax(szTpl));
+    formatex(szMsg, charsmax(szMsg), szTpl, szFile);
+    client_print(id, print_chat, "[RePruning] %s", szMsg);
+
+    Lang("FIX_OPEN", szTpl, charsmax(szTpl));
+    client_print(id, print_chat, "[RePruning] %s", szTpl);
 
     static const szHead[] = "<html><head><meta http-equiv=^"Content-Type^" content=^"text/html; charset=utf-8^"></head><body bgcolor=^"#181818^" text=^"#dcdcdc^"><font face=^"Trebuchet MS^">";
     static const szFoot[] = "<br><font color=^"#888888^">RePruning — file integrity control</font></font></body></html>";
 
-    new szMOTD[1280];
     copy(szMOTD, charsmax(szMOTD), szHead);
-    add(szMOTD, charsmax(szMOTD), "<font color=^"#ff6a6a^"><b>Файл не прошёл проверку: ");
-    add(szMOTD, charsmax(szMOTD), szFile);
-    add(szMOTD, charsmax(szMOTD), "</b></font><br><br>");
-    add(szMOTD, charsmax(szMOTD), "<b>How to fix (Steam Cloud / MD5):</b><br>");
-    add(szMOTD, charsmax(szMOTD), "1. Exit the game<br>");
-    add(szMOTD, charsmax(szMOTD), "2. Delete the specified file from the cstrike folder (or reinstall the game)<br>");
-    add(szMOTD, charsmax(szMOTD), "3. Disable Steam Cloud for CS 1.6: Steam -> Library -> CS 1.6 -> Properties -> General -> uncheck "Keep games saves in the Steam Cloud" — otherwise, Steam will restore the file<br>");
-    add(szMOTD, charsmax(szMOTD), "4. Verify the integrity of the files: Properties -> Local Files -> "Verify integrity of game files"<br>");
-    add(szMOTD, charsmax(szMOTD), "5. Log in to the server again<br><br>");
-    add(szMOTD, charsmax(szMOTD), "<b>How to fix (EN):</b> exit the game, delete the file ");
-    add(szMOTD, charsmax(szMOTD), szFile);
-    add(szMOTD, charsmax(szMOTD), " from your cstrike folder, disable Steam Cloud sync for CS 1.6 (Steam -> Properties -> General), verify file integrity, reconnect.<br><br>");
-    add(szMOTD, charsmax(szMOTD), "<font color=^"#88aadd^">If the file is your personal config (userconfig.cfg), let the admin know: such files legitimately vary from user to user and should not be included in the check list</font>");
+    add(szMOTD, charsmax(szMOTD), "<font color=^"#ff6a6a^"><b>");
+    Lang("MOTD_HEAD", szTpl, charsmax(szTpl));
+    formatex(szPart, charsmax(szPart), szTpl, szFile);
+    add(szMOTD, charsmax(szMOTD), szPart);
+    add(szMOTD, charsmax(szMOTD), "</b></font><br><br><b>");
+    Lang("MOTD_HOWTO", szTpl, charsmax(szTpl));
+    add(szMOTD, charsmax(szMOTD), szTpl);
+    add(szMOTD, charsmax(szMOTD), "</b><br>");
+
+    for (new i = 1; i <= 5; i++) {
+        formatex(szKey, charsmax(szKey), "MOTD_STEP%d", i);
+        Lang(szKey, szTpl, charsmax(szTpl));
+        add(szMOTD, charsmax(szMOTD), szTpl);
+        add(szMOTD, charsmax(szMOTD), "<br>");
+    }
+    add(szMOTD, charsmax(szMOTD), "<br>");
+
+    Lang("MOTD_NOTE", szTpl, charsmax(szTpl));
+    formatex(szPart, charsmax(szPart), "<font color=^"#88aadd^">%s</font>", szTpl);
+    add(szMOTD, charsmax(szMOTD), szPart);
     add(szMOTD, charsmax(szMOTD), szFoot);
 
-    show_motd(id, szMOTD, "RePruning: fix guide");
+    Lang("MOTD_TITLE", szTitle, charsmax(szTitle));
+    show_motd(id, szMOTD, szTitle);
     Pruning_Log(LOG_DEBUG, "fix guide sent to client #%d for file ^"%s^"", get_user_userid(id), szFile);
+}
+
+LoadLanguages()
+{
+    TrieClear(g_tLang);
+    g_iLangCount = 0;
+    g_iLangKeys = 0;
+
+    new szBase[96], szPath[192], szLine[640], szKey[64], szVal[512], szCc[16], szFlat[80];
+    get_localinfo("amxx_datadir", szBase, charsmax(szBase));
+    add(szBase, charsmax(szBase), "/repruning");
+
+    if (!dir_exists(szBase)) {
+        Pruning_Log(LOG_ERROR, "language folder not found: %s — key names will be printed instead of texts", szBase);
+        return;
+    }
+
+    new dp = open_dir(szBase, szCc, charsmax(szCc));
+    if (!dp)
+        return;
+
+    while (next_file(dp, szCc, charsmax(szCc))) {
+        if (szCc[0] == '.' || szCc[0] == '/')
+            continue;
+
+        formatex(szPath, charsmax(szPath), "%s/%s/repruning.txt", szBase, szCc);
+        if (!file_exists(szPath))
+            continue;
+
+        new fp = fopen(szPath, "rt");
+        if (!fp)
+            continue;
+
+        new iKeys;
+        while (!feof(fp)) {
+            fgets(fp, szLine, charsmax(szLine));
+            trim(szLine);
+
+            if (!szLine[0] || szLine[0] == ';' || (szLine[0] == '/' && szLine[1] == '/'))
+                continue;
+
+            new iPos = contain(szLine, "=");
+            if (iPos < 1) {
+                Pruning_Log(LOG_ERROR, "lang %s: malformed line ^"%s^"", szPath, szLine);
+                continue;
+            }
+
+            copy(szKey, iPos, szLine);
+            trim(szKey);
+            copy(szVal, charsmax(szVal), szLine[iPos + 1]);
+            trim(szVal);
+
+            if (!szKey[0] || !szVal[0]) {
+                Pruning_Log(LOG_ERROR, "lang %s: malformed line ^"%s^"", szPath, szLine);
+                continue;
+            }
+
+            formatex(szFlat, charsmax(szFlat), "%s.%s", szCc, szKey);
+            TrieSetString(g_tLang, szFlat, szVal);
+            iKeys++;
+        }
+        fclose(fp);
+
+        if (iKeys) {
+            g_iLangCount++;
+            g_iLangKeys += iKeys;
+            Pruning_Log(LOG_INFO, "language loaded: %s — %d keys", szCc, iKeys);
+        }
+    }
+    close_dir(dp);
+
+    if (!g_iLangCount)
+        Pruning_Log(LOG_ERROR, "no languages loaded from %s — key names will be printed instead of texts", szBase);
+}
+
+Lang(const szKey[], szOut[], iMaxLen)
+{
+    new szCc[8], szFlat[80];
+    get_pcvar_string(g_pLang, szCc, charsmax(szCc));
+    if (!szCc[0])
+        copy(szCc, charsmax(szCc), "us");
+
+    formatex(szFlat, charsmax(szFlat), "%s.%s", szCc, szKey);
+    if (!TrieGetString(g_tLang, szFlat, szOut, iMaxLen)) {
+        formatex(szFlat, charsmax(szFlat), "us.%s", szKey);
+        if (!TrieGetString(g_tLang, szFlat, szOut, iMaxLen)) {
+            copy(szOut, iMaxLen, szKey);
+            Pruning_Log(LOG_DEBUG, "lang key not found: %s", szKey);
+        }
+    }
+}
+
+LoadBanMemory()
+{
+    TrieClear(g_tBanMem);
+
+    get_localinfo("amxx_datadir", g_szBanMemPath, charsmax(g_szBanMemPath));
+    add(g_szBanMemPath, charsmax(g_szBanMemPath), "/repruning_bans.txt");
+
+    if (!file_exists(g_szBanMemPath)) {
+        Pruning_Log(LOG_DEBUG, "ban memory is empty: %s not found yet", g_szBanMemPath);
+        return;
+    }
+
+    new fp = fopen(g_szBanMemPath, "rt");
+    if (!fp) {
+        Pruning_Log(LOG_ERROR, "cannot open ban memory: %s", g_szBanMemPath);
+        return;
+    }
+
+    new szLine[160], szAuth[36], szMin[16], iCount;
+    while (!feof(fp)) {
+        fgets(fp, szLine, charsmax(szLine));
+        trim(szLine);
+
+        if (!szLine[0] || szLine[0] == ';' || (szLine[0] == '/' && szLine[1] == '/'))
+            continue;
+
+        if (parse(szLine, szAuth, charsmax(szAuth), szMin, charsmax(szMin)) < 2)
+            continue;
+
+        TrieSetCell(g_tBanMem, szAuth, str_to_num(szMin));
+        iCount++;
+    }
+    fclose(fp);
+    Pruning_Log(LOG_INFO, "ban memory loaded: %d entries (%s)", iCount, g_szBanMemPath);
+}
+
+BanMemRemember(const szAuth[], iMinutes)
+{
+    if (g_tBanMem == Invalid_Trie || contain(szAuth, "STEAM_0:") != 0)
+        return;
+
+    TrieSetCell(g_tBanMem, szAuth, iMinutes);
+
+    new fp = fopen(g_szBanMemPath, "at");
+    if (fp) {
+        fprintf(fp, "%s %d %d^n", szAuth, iMinutes, get_systime());
+        fclose(fp);
+        Pruning_Log(LOG_INFO, "ban memory: %s stored (%d min) — %d entries", szAuth, iMinutes, TrieGetSize(g_tBanMem));
+    }
+}
+
+public client_authorized(id)
+{
+    new szAuth[36];
+    get_user_authid(id, szAuth, charsmax(szAuth));
+
+    new iMinutes;
+    if (g_tBanMem != Invalid_Trie && TrieGetCell(g_tBanMem, szAuth, iMinutes)) {
+        g_iBanMemHits++;
+        Pruning_Log(LOG_INFO, "ban memory hit: %s (%d min) — kicked on connect", szAuth, iMinutes);
+        server_cmd("kick #%d ^"RePruning: file mismatch ban (%d min)^"", get_user_userid(id), iMinutes);
+    }
 }
 
 Pruning_Log(iLevel, const szFmt[], any:...)
@@ -666,6 +875,14 @@ public ConCmd_Status(id)
         get_pcvar_num(g_pHints), get_pcvar_num(g_pFiles));
     console_print(id, "Files: active checks=%d | clients=%d | mismatches=%d | kicks=%d | bans=%d",
         g_iFileChecks, g_iClientsConnected, g_iMismatchTotal, g_iKickTotal, g_iBanTotal);
+
+    new szCc[8];
+    get_pcvar_string(g_pLang, szCc, charsmax(szCc));
+    console_print(id, "Lang: %s | languages=%d | keys=%d | drop cleanup: event-driven (no scan task)",
+        szCc, g_iLangCount, g_iLangKeys);
+    console_print(id, "Ban memory: %d entries | hits=%d | file: %s",
+        TrieGetSize(g_tBanMem), g_iBanMemHits, g_szBanMemPath);
+    console_print(id, "API: reserved (planned external module — not in core)");
     console_print(id, "Errors total: %d | Log level: %d | Log file: %s",
         g_iErrCount, get_pcvar_num(g_pLogLevel), g_szLogPath);
     console_print(id, "-------------------------------------------------------------");
@@ -684,6 +901,10 @@ public plugin_end()
 
     if (g_tMismatch != Invalid_Trie)
         TrieDestroy(g_tMismatch);
+    if (g_tLang != Invalid_Trie)
+        TrieDestroy(g_tLang);
+    if (g_tBanMem != Invalid_Trie)
+        TrieDestroy(g_tBanMem);
 }
 
 public ConCmd_Reload(id)
@@ -699,9 +920,13 @@ public ConCmd_Reload(id)
 
     PerformCleanup();
     ApplyFileChecks();
-    Task_ScanDrops();
+    OnDropCleanup();
+    LoadLanguages();
+    LoadBanMemory();
 
-    console_print(id, "[RePruning] Config loaded...");
+    new szMsg[96];
+    Lang("RELOADED", szMsg, charsmax(szMsg));
+    console_print(id, "[RePruning] %s", szMsg);
 
     new szName[32];
     if (id > 0 && is_user_connected(id))
