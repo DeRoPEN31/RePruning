@@ -23,6 +23,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing yet.
 
+## [0.0.3] — 2026-11-19
+
+### Added
+
+- Localization — every message of the plugin is now loaded from language files in
+  `addons/amxmodx/data/repruning/<code>/repruning.txt`, the language is selected with the
+  `pruning_lang` cvar.
+- Nine languages shipped with the release — `us`, `ru`, `ua`, `kz`, `de`, `dk`, `fr`, `pl`, `se`.
+- Fallback to the English file when a key is missing in the selected language, and to the key
+  name when it is missing everywhere.
+- Ban memory — the banned clients are stored in `addons/amxmodx/data/repruning_bans.txt`, survive
+  a restart of the server and are kicked right after the authorization.
+- Drop cleanup on demand — the dropped weapons are removed immediately on the drop event,
+  instead of waiting for the next background pass.
+
+### Changed
+
+- The platform of the plugin is ReHLDS.
+- The version of the build is reported as `v0.0.3 V1`.
+
+### Fixed
+
+- The mixed Russian / English MOTD is gone — every text now comes from the language file.
+
+### Removed
+
+- Nothing.
+
 ## [0.0.2-alpha] — 2026-11-17
 
 ### Added
@@ -80,6 +108,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 ### Removed
+
+- Nothing yet.
+
+[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.3...HEAD
+[0.0.3]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.3_V1
+[0.0.2-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.2
+[0.0.1-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.1
 
 - Nothing yet.
 
