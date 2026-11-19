@@ -1,6 +1,6 @@
 # RePruning
 
-![Version](https://img.shields.io/badge/version-0.0.2--Alpha-blue)
+![Version](https://img.shields.io/badge/version-0.0.3--V1-blue)
 ![Game](https://img.shields.io/badge/game-Counter--Strike%201.6-orange)
 ![Platform](https://img.shields.io/badge/platform-ReAPI%20%7C%20ReHLDS%20%7C%20ReGameDLL-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -27,6 +27,7 @@ not want, instead of shipping a separate plugin for every small change.
 - **Console & hints** — silence noisy console messages and HUD hint popups
 - **File checks** — verify client files by MD5 against a server-side list, with kicks and temporary bans
 - **Logging & status** — configurable log levels and a live status command
+- **Localization** — nine languages for every message the plugin sends
 
 Every feature is a separate switch, so you enable only what your server needs. Nothing in the
 game DLLs has to be modified.
@@ -41,8 +42,8 @@ game DLLs has to be modified.
 | ReGameDLL    | 5.30.0.814-dev     |    yes   |
 | ReAPI        | 5.29.0.359-dev     |    yes   |
 
-HLDS and ReHLDS are both supported. The plugin works through ReAPI hooks and does not initialise
-on a stock engine.
+The plugin targets the Re* stack — ReHLDS with ReGameDLL and ReAPI. It works through ReAPI
+hooks and does not initialise on a stock engine.
 
 ## Installation
 
@@ -50,15 +51,16 @@ on a stock engine.
    or from [deropen.fun](https://deropen.fun). The archive contains:
 
    ```
-   addons/amxmodx/plugins/repruning.amxx      # compiled plugin — the only file the server needs
-   addons/amxmodx/configs/pruning.cfg         # configuration, every option documented inline
-   addons/amxmodx/configs/pruning_files.cfg   # list of client files for the MD5 check
-   source/repruning.sma                       # plugin source — not needed on the server
+   addons/amxmodx/plugins/repruning.amxx        # compiled plugin — the only file the server needs
+   addons/amxmodx/configs/pruning.cfg           # configuration, every option documented inline
+   addons/amxmodx/configs/pruning_files.cfg     # list of client files for the MD5 check
+   addons/amxmodx/data/repruning/<lang>/         # language files, one folder per language
+   source/repruning.sma                         # plugin source — not needed on the server
    ```
 
-2. Unpack the archive — it contains the `RePruning v0.0.2/` folder — and copy its contents into
-   the game server folder, so that the plugin ends up in `addons/amxmodx/plugins/` and the configs
-   in `addons/amxmodx/configs/`.
+2. Unpack the archive — it contains the `RePruning v0.0.3/` folder — and copy its contents into
+   the game server folder, so that the plugin ends up in `addons/amxmodx/plugins/`, the configs
+   in `addons/amxmodx/configs/` and the languages in `addons/amxmodx/data/repruning/`.
 3. Add it to `addons/amxmodx/configs/plugins.ini`:
 
    ```ini
@@ -78,6 +80,7 @@ on a stock engine.
 ```
 addons/amxmodx/configs/pruning.cfg       — configuration, every option documented inline
 addons/amxmodx/configs/pruning_files.cfg — list of client files for the MD5 check
+addons/amxmodx/data/repruning/<lang>/     — language files, one folder per language
 source/repruning.sma                     — plugin source
 ```
 
@@ -109,6 +112,8 @@ inline.
 | :--- | :-----: | :---------- |
 | **Logging** | | |
 | `pruning_log_level` | `2` | Detail level of `addons/amxmodx/logs/RePruning.log`: `0` — off, `1` — errors only, `2` — errors and actions (default), `3` — verbose. |
+| **Localization** | | |
+| `pruning_lang` | `us` | Language of the plugin messages — the code of the folder in `addons/amxmodx/data/repruning/`: `us`, `ru`, `ua`, `kz`, `de`, `dk`, `fr`, `pl`, `se`. |
 | **Buying & money** | | |
 | `pruning_buy` | `1` | Block buying: the `B` menu, all weapon / armour / grenade commands, autobuy and rebuy. A player cannot buy anything. |
 | `pruning_buyzone_remove` | `1` | Remove buy zones (`func_buyzone`) from the map. The `$` icon disappears from the HUD as well. |
@@ -149,6 +154,37 @@ The plugin also registers a read-only cvar `repruning_version` with the version 
 
 Settings are applied on plugin load — edit the config and restart the server to apply them.
 
+## Languages
+
+Every message the plugin sends — the MOTD fix guide, the kick reasons, the startup info — is
+loaded from language files. The language is selected with the `pruning_lang` cvar:
+
+```
+pruning_lang "us"
+```
+
+The files live in `addons/amxmodx/data/repruning/<code>/repruning.txt` — one folder per
+language:
+
+| Code | Language | Code | Language |
+| :--- | :------- | :--- | :------- |
+| `us` | English | `ru` | Russian |
+| `ua` | Ukrainian | `kz` | Kazakh |
+| `de` | German | `pl` | Polish |
+| `dk` | Danish | `se` | Swedish |
+| `fr` | French | | |
+
+Every file uses the same format — one `KEY = text` pair per line:
+
+```
+MOTD_HEAD = File failed the check: %s
+KICK_BAN = file mismatch, banned %d min: %s
+```
+
+If a key is missing in the selected language, the plugin falls back to the English (`us`) file,
+and if it is missing there as well, the key name itself is printed. To add your own language,
+create a folder with the language code, copy the English file into it and translate the values.
+
 ## File checks
 
 The plugin can verify the files of the client against a list of reference files on the server
@@ -176,9 +212,19 @@ written to the log — the check is skipped for those entries instead of failing
 
 Two details about the temporary ban: it is issued by the **engine ban system**
 (`banid` / `writeid` → `addons/cstrike/banned.cfg`), not by the AMX Mod X ban list, so it needs
-a writable `banned.cfg` and `exec banned.cfg` in `server.cfg` to be applied after a restart.
-The mismatch counter is kept in memory per SteamID, so it survives a reconnect but not a restart
-of the server.
+a writable `banned.cfg` and `exec banned.cfg` in `server.cfg` to be applied after a restart. On
+top of that the plugin keeps its own memory of the banned clients — see the next section.
+
+## Ban memory
+
+The plugin remembers every client it banned for a file mismatch in
+`addons/amxmodx/data/repruning_bans.txt` — the file is created automatically on the first ban.
+
+The memory is loaded on startup, so the bans survive a restart of the server. A client that is in
+the memory is kicked right after the authorization, with the reason
+`RePruning: file mismatch ban (N min)`.
+
+Delete the file if you want to clear the memory and let the banned clients back in.
 
 This is how modified and injected client files are caught — including the auto-executed files
 such as `autoexec.cfg` or `userconfig.cfg`. Keep in mind that a server cannot clean a player's
@@ -211,7 +257,8 @@ admin for help.
 - `pruning_console` also silences the console output of other plugins. Keep it off if you rely
   on `client_print(id, print_console, ...)`.
 - `pruning_files` can kick and ban players. Configure the file list first, then enable it.
-- The ban counter is tracked per client by SteamID and user ID, so a reconnect does not reset it.
+- The ban counter is tracked per client by SteamID and user ID, so a reconnect does not reset
+  it, and it is stored on disk as well — see the ban memory section.
 - Keep a backup of `pruning.cfg` before editing — it is overwritten on every update.
 - Report problems and request features in the [issue tracker](https://github.com/DeRoPEN31/RePruning/issues).
 
