@@ -27,12 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Public API — `repruning.inc` with 7 natives (`repruning_is_flagged`, `repruning_get_mismatches`,
+- Public API — `repruning.inc` with 11 natives (`repruning_is_flagged`, `repruning_get_mismatches`,
   `repruning_is_banned`, `repruning_add_ban`, `repruning_remove_ban`, `repruning_get_identifier`,
-  `repruning_server_info`) and 3 forwards (`repruning_player_flagged`, `repruning_player_banned`,
-  `repruning_player_unbanned`), so other plugins can read the state of the plugin, manage the ban
-  list and react to the bans. Because of `#pragma library "repruning"` a plugin that uses the API
-  only loads when the core plugin is present.
+  `repruning_server_info`, `repruning_server_data`, `repruning_get_ban_expiry`,
+  `repruning_get_ban_count`, `repruning_get_stat`) and 3 forwards (`repruning_player_flagged`,
+  `repruning_player_banned`, `repruning_player_unbanned`), so other plugins can read the state of
+  the plugin, manage the ban list and react to the bans. Machine-readable counterparts for
+  programmatic consumers: `repruning_server_data` (versioned `key=value` lines),
+  `repruning_get_ban_expiry`, `repruning_get_ban_count` and `repruning_get_stat`, while
+  `repruning_server_info` stays the display report. Because of `#pragma library "repruning"` a
+  plugin that uses the API only loads when the core plugin is present.
 - Autonomous ban list — `pruning_bans`, `pruning_bans_ttl`, `pruning_bans_cleanup` and
   `pruning_bans_max`: the entries expire on their own, are cleaned up automatically and the
   list is capped.
@@ -78,6 +82,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The dropped weapons are now removed immediately on the drop event, instead of waiting for the
   next background pass.
+- The ban list and the engine `banid` only accept an individual SteamID (`STEAM_0:...`).
+  Session-only identifiers (`uid_<userid>` — a client whose SteamID has not arrived yet) and
+  shared pseudo-authids (`STEAM_ID_LAN`, `HLTV`) are never stored and never passed to the
+  engine, so a server restart or a reused userid can never make the plugin punish an innocent
+  client. A flagged client without a SteamID is punished for the session only, the log reports
+  the skipped ban, and legacy ban-file entries with such keys are dropped as invalid on load.
+- The core registers the `repruning` library in `plugin_natives()`, which AMXX calls at load
+  time. It used to register in `plugin_init()`, which runs only after every plugin is already
+  loaded, so plugins using the API failed with `bad load` — `Module/Library "repruning" required
+  for plugin. Check modules.ini`. With the fix `pruning_info.amxx` loads correctly when placed
+  after `repruning.amxx` in `plugins.ini`.
 
 ### Removed
 
@@ -175,4 +190,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.0.3]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.3
 [0.0.2-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.2
 [0.0.1-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.1
-
