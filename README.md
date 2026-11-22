@@ -45,12 +45,12 @@ hooks and does not initialise on a stock engine.
 ## Download
 
 - [Releases](https://github.com/DeRoPEN31/RePruning/releases) — the latest build
-- [deropen.fun](https://dev.deropen.fun) — the project website with all plugins
+- [dev.deropen.fun](https://dev.deropen.fun) — the project website with all plugins
 
 ## Installation
 
 1. Download the latest build from [Releases](https://github.com/DeRoPEN31/RePruning/releases)
-   or from [deropen.fun](https://dev.deropen.fun). The archive contains:
+   or from [dev.deropen.fun](https://dev.deropen.fun). The archive contains:
 
    ```
    addons/amxmodx/plugins/repruning.amxx             # core plugin — the only required one
@@ -101,7 +101,7 @@ Everything else lives in the topic files:
 
 ## Links
 
-- Website — [deropen.fun](https://dev.deropen.fun)
+- Website — [dev.deropen.fun](https://dev.deropen.fun)
 - Repository — [github.com/DeRoPEN31/RePruning](https://github.com/DeRoPEN31/RePruning)
 - Telegram — [DeRoPEN_DEv](https://t.me/DeRoPEN_DEv)
 
@@ -122,7 +122,7 @@ reports, false positives and ideas are all welcome, and every one of them is rea
 
 **Want to see more of my work?**
 
-- [deropen.fun](https://dev.deropen.fun) — my website with all plugins and projects
+- [dev.deropen.fun](https://dev.deropen.fun) — my website with all plugins and projects
 - [github.com/DeRoPEN31](https://github.com/DeRoPEN31) — all of my repositories
 
 Sharing the plugin with other server owners is just as welcome as a star.
