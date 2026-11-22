@@ -171,7 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet.
 
 [Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.4...HEAD
-[0.0.4]: https://github.com/DeRoPEN31/RePruning/releases/tag/v0.0.4
+[0.0.4]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.4
 [0.0.3]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.3
 [0.0.2-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.2
 [0.0.1-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.1
