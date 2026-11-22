@@ -23,8 +23,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing yet.
 
-## [0.0.3] — 2026-11-19
+## [0.0.4] — 2026-11-22
 
+### Added
+
+- Public API — `repruning.inc` with 7 natives (`repruning_is_flagged`, `repruning_get_mismatches`,
+  `repruning_is_banned`, `repruning_add_ban`, `repruning_remove_ban`, `repruning_get_identifier`,
+  `repruning_server_info`) and 3 forwards (`repruning_player_flagged`, `repruning_player_banned`,
+  `repruning_player_unbanned`), so other plugins can read the state of the plugin, manage the ban
+  list and react to the bans. Because of `#pragma library "repruning"` a plugin that uses the API
+  only loads when the core plugin is present.
+- Autonomous ban list — `pruning_bans`, `pruning_bans_ttl`, `pruning_bans_cleanup` and
+  `pruning_bans_max`: the entries expire on their own, are cleaned up automatically and the
+  list is capped.
+- Ban file validation and conversion — malformed and expired entries in `repruning_bans.txt` are
+  dropped with a log report; the 0.0.3 format (`steamid minutes added_unix`) converts to the new
+  `steamid expiry_unix` format automatically, no manual editing.
+- Loud warning when file checks are enabled — switching `pruning_files` to `1` prints a prominent
+  multi-line warning to the server console and the log, so the kick/ban switch is never enabled
+  by accident.
+- Cvar validation — `pruning_files_maxfails`, `pruning_files_bantime`, `pruning_bans_ttl` and
+  `pruning_bans_max` are checked on range and clamped.
+- Game mode presets — `pruning_mode_settings.amxx` applies a ready set of modules for ZM,
+  DeathRun, CSDM, DM, Pub or Lasers with one cvar. Six presets ship with the release, and any
+  own preset can be added as `configs/pruning_mode_<name>.cfg`.
+- Identifier system — `pruningid` shows your own identifier, `pruning_ids` prints the table of
+  all connected players (uid, identifier, name, status). The identifier is the SteamID, or
+  `uid_<userid>` when there is no SteamID yet — the same key the plugin uses for mismatch
+  tracking and bans. Controlled by `pruning_ids`.
+- `pruning_info.amxx` — a standalone status command (`pruning_info` / `amx_pruning_status`)
+  that only reads the state, without hooks and tasks.
+- `pruninginfo` chat command — what is removed on this server, your file-check status and your
+  identifier.
+- `amx_pruning_reload` — reload of `pruning.cfg`, `pruning_baning.cfg`, the languages and the
+  ban list.
+- `BAN_REJECT` language key — the connect-time rejection reason with the auto-expiry date,
+  translated into all nine languages.
+- The configuration is split into `pruning.cfg` (modules, logging, language) and
+  `pruning_baning.cfg` (file checks, bans, identifiers).
+
+### Changed
+
+- The ban list stores the absolute expiry time (`steamid expiry_unix`) instead of the ban
+  length, so the entries can expire on their own.
+- The mode presets are read from `configs/pruning_mode_settings.cfg`, and the available presets
+  are discovered automatically in `configs/`.
+- The `amx_pruning_status` command moved to the optional `pruning_info.amxx` plugin.
+- The documentation is split — the README now holds only the description, download, installation
+  and credits; the configuration, commands, modes, file checks, languages, API and repository
+  structure moved to the topic files in `docs/`.
+- The version of the build is reported as `0.0.4`.
+
+### Fixed
+
+- The dropped weapons are now removed immediately on the drop event, instead of waiting for the
+  next background pass.
+
+### Removed
+
+- Nothing.
+
+## [0.0.3] — 2026-11-19
 ### Added
 
 - Localization — every message of the plugin is now loaded from language files in
@@ -111,13 +170,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing yet.
 
-[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.3...HEAD
+[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.4...HEAD
+[0.0.4]: https://github.com/DeRoPEN31/RePruning/releases/tag/v0.0.4
 [0.0.3]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.3
 [0.0.2-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.2
 [0.0.1-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.1
 
-- Nothing yet.
-
-[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.2...HEAD
-[0.0.2-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.2
-[0.0.1-alpha]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.1
