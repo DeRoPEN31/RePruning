@@ -19,10 +19,17 @@ core plugin is present — it refuses to load instead of half-working. Put such 
 | `repruning_is_flagged(id)` | `1` if the client has at least one file mismatch recorded this session, else `0`. |
 | `repruning_get_mismatches(id)` | Number of file mismatches recorded for the client this session. |
 | `repruning_is_banned(authid)` | `1` if the authid has an active ban list entry right now. |
-| `repruning_add_ban(authid, minutes)` | Adds the authid to the ban list, clamped by `pruning_bans_ttl`. |
+| `repruning_add_ban(authid, minutes)` | Adds the authid to the ban list, clamped by `pruning_bans_ttl`. Only individual SteamIDs are accepted — `uid_<userid>` and shared authids (`STEAM_ID_LAN`) return `0`. |
 | `repruning_remove_ban(authid)` | Removes the authid from the ban list immediately. |
 | `repruning_get_identifier(id, identifier[], maxlen)` | Writes the identifier used by RePruning — the SteamID, or `uid_<userid>` when there is no SteamID yet. |
-| `repruning_server_info(output[], maxlen)` | Writes the full server report — the same output as `pruning_info`. |
+| `repruning_server_info(output[], maxlen)` | Writes the full server report — the same output as `pruning_info`. Display only: the text is human-oriented and partly localized. |
+| `repruning_server_data(output[], maxlen)` | Machine-readable server state — `key=value` lines, English keys only, first line is `api=N` (check it before parsing). Returns `1` on success, `0` when the buffer is too small. Use this instead of `repruning_server_info` for parsing. |
+| `repruning_get_ban_expiry(authid)` | Unix time when the active ban entry for the authid expires, `0` = no active entry. Only individual SteamIDs are accepted. |
+| `repruning_get_ban_count()` | Number of entries currently in the ban list. |
+| `repruning_get_stat(stat)` | Uptime counter, one of `RePruningStat_*`: mismatches, kicks, bans, errors, ban list hits, expired and invalid entries, active file checks. |
+
+Module and mode states are plain cvars (`pruning_*`) — read them with cvar natives if you need
+them; the natives above expose only the internal runtime state.
 
 ## Forwards
 

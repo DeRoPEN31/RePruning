@@ -167,6 +167,15 @@ public plugin_init()
     g_hFwdFlagged  = CreateMultiForward("repruning_player_flagged",  ET_IGNORE, FP_CELL, FP_STRING);
     g_hFwdBanned   = CreateMultiForward("repruning_player_banned",   ET_IGNORE, FP_CELL, FP_STRING, FP_CELL);
     g_hFwdUnbanned = CreateMultiForward("repruning_player_unbanned", ET_IGNORE, FP_STRING);
+}
+
+public plugin_natives()
+{
+    // Runs at LOAD time — before the next plugin in plugins.ini is checked against its
+    // #pragma reqlib. Registered in plugin_init() it would fire only after every plugin is
+    // already loaded, and any plugin using the API would fail with
+    // 'Module/Library "repruning" required for plugin. Check modules.ini.'
+    register_library("repruning");
 
     register_native("repruning_is_flagged", "Native_IsFlagged");
     register_native("repruning_get_mismatches", "Native_GetMismatches");
@@ -175,8 +184,10 @@ public plugin_init()
     register_native("repruning_remove_ban", "Native_RemoveBan");
     register_native("repruning_get_identifier", "Native_GetIdentifier");
     register_native("repruning_server_info", "Native_ServerInfo");
-
-    register_library("repruning");
+    register_native("repruning_server_data", "Native_ServerData");
+    register_native("repruning_get_ban_expiry", "Native_GetBanExpiry");
+    register_native("repruning_get_ban_count", "Native_GetBanCount");
+    register_native("repruning_get_stat", "Native_GetStat");
 }
 
 public plugin_cfg()
@@ -694,7 +705,14 @@ public inconsistent_file(id, const filename[], reason[64])
     if (iMaxFails < 0) iMaxFails = 0;
     if (iBanTime  < 0) iBanTime = 0;
 
-    if (iMaxFails > 0 && iBanTime > 0 && iFails >= iMaxFails) {
+    // A persistent ban (engine banned.cfg + the autonomous ban list) is only allowed for an
+    // individual SteamID. A session-only (uid_<userid>) or shared (STEAM_ID_LAN) identifier
+    // never reaches the engine or the ban file — punishing by it would hit innocent clients
+    // after a restart; such a client is punished for this session only.
+    new bBanReached = (iMaxFails > 0 && iBanTime > 0 && iFails >= iMaxFails);
+    new bBanStored  = (bBanReached && IsValidAuth(szAuth));
+
+    if (bBanStored) {
 
         server_cmd("banid %d ^"%s^"; writeid", iBanTime, szAuth);
         if (get_pcvar_num(g_pBans))
@@ -708,13 +726,18 @@ public inconsistent_file(id, const filename[], reason[64])
         formatex(szKick, charsmax(szKick), szTpl, iBanTime, filename);
         g_iKickTotal++;
         server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
-    } else if (get_pcvar_num(g_pFilesKick)) {
+    } else {
 
-        g_iKickTotal++;
-        new szTpl[128], szKick[192];
-        Lang("KICK_MISMATCH", szTpl, charsmax(szTpl));
-        formatex(szKick, charsmax(szKick), szTpl, filename);
-        server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
+        if (bBanReached)
+            Pruning_Log(LOG_INFO, "ban skipped: ^"%s^" is not an individual SteamID (session-only or shared) — %s is punished for this session only, nothing is persisted", szAuth, szName);
+
+        if (get_pcvar_num(g_pFilesKick)) {
+            g_iKickTotal++;
+            new szTpl[128], szKick[192];
+            Lang("KICK_MISMATCH", szTpl, charsmax(szTpl));
+            formatex(szKick, charsmax(szKick), szTpl, filename);
+            server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
+        }
     }
 }
 
@@ -912,9 +935,15 @@ LoadBanList()
 
 IsValidAuth(const szAuth[])
 {
+    // Only an individual SteamID may back a persistent ban. Session-only keys (uid_<userid>,
+    // used while the client's SteamID has not arrived yet) reset on every restart, and shared
+    // pseudo-authids (STEAM_ID_LAN, HLTV, STEAM_ID_PENDING, STEAM_ID_BOT) match many clients
+    // at once — storing or banning by them would punish innocent players.
     if (contain(szAuth, "STEAM_") != 0)
         return 0;
-    return (strlen(szAuth) >= 10) ? 1 : 0;
+    if (szAuth[6] < '0' || szAuth[6] > '9' || szAuth[7] != ':' || strlen(szAuth) < 11)
+        return 0;
+    return 1;
 }
 
 BanListRemember(const szAuth[], iMinutes)
@@ -1264,11 +1293,23 @@ BuildServerReport(szOut[], iLen)
     RepLine(szOut, iLen, "  bans=%d ttl=%d h cleanup=%d max=%d ids=%d | file: %s",
         get_pcvar_num(g_pBans), get_pcvar_num(g_pBansTTL), get_pcvar_num(g_pBansCleanup),
         get_pcvar_num(g_pBansMax), get_pcvar_num(g_pIds), g_szBanMemPath);
-    RepLine(szOut, iLen, "API: library repruning — 7 natives + 3 forwards (source/repruning.inc)");
+    RepLine(szOut, iLen, "API: library repruning — 11 natives + 3 forwards (source/repruning.inc)");
     RepLine(szOut, iLen, "Errors total: %d | Log level: %d | Log file: %s",
         g_iErrCount, get_pcvar_num(g_pLogLevel), g_szLogPath);
     RepLine(szOut, iLen, "-------------------------------------------------------------");
 }
+
+enum RePruningStat
+{
+    RePruningStat_Mismatches  = 0,
+    RePruningStat_Kicks,
+    RePruningStat_Bans,
+    RePruningStat_Errors,
+    RePruningStat_BanListHits,
+    RePruningStat_BansExpired,
+    RePruningStat_BansInvalid,
+    RePruningStat_FileChecks
+};
 
 public Native_ServerInfo(iPlugin, iParams)
 {
@@ -1276,6 +1317,70 @@ public Native_ServerInfo(iPlugin, iParams)
     BuildServerReport(szReport, charsmax(szReport));
     set_string(1, szReport, iLen);
     return 1;
+}
+
+public Native_ServerData(iPlugin, iParams)
+{
+    new iMax = get_param(2);
+    new szBuf[1024], szMap[48], szLang[16];
+
+    get_mapname(szMap, charsmax(szMap));
+    get_pcvar_string(g_pLang, szLang, charsmax(szLang));
+
+    new iLen = copy(szBuf, charsmax(szBuf), "api=1");
+    iLen += formatex(szBuf[iLen], charsmax(szBuf) - iLen,
+        "^nversion=%s^nmap=%s^nlog_level=%d^nlang=%s^nlang_count=%d^nlang_keys=%d^nfile_checks=%d^nclients=%d",
+        VERSION, szMap, get_pcvar_num(g_pLogLevel), szLang, g_iLangCount, g_iLangKeys,
+        g_iFileChecks, g_iClientsConnected);
+    iLen += formatex(szBuf[iLen], charsmax(szBuf) - iLen,
+        "^nban_entries=%d^nban_hits=%d^nban_expired=%d^nban_invalid=%d",
+        (g_tBanMem != Invalid_Trie) ? TrieGetSize(g_tBanMem) : 0,
+        g_iBanMemHits, g_iBanExpired, g_iBanInvalid);
+    iLen += formatex(szBuf[iLen], charsmax(szBuf) - iLen,
+        "^nmismatch_total=%d^nkick_total=%d^nban_total=%d^nerrors=%d",
+        g_iMismatchTotal, g_iKickTotal, g_iBanTotal, g_iErrCount);
+
+    if (iLen >= iMax)
+        return 0;
+
+    set_string(1, szBuf, iMax);
+    return 1;
+}
+
+public Native_GetBanExpiry(iPlugin, iParams)
+{
+    new szAuth[36];
+    get_string(1, szAuth, charsmax(szAuth));
+
+    if (!IsValidAuth(szAuth))
+        return 0;
+
+    BanListCheckExpired(szAuth);
+
+    new iExpires;
+    return TrieGetCell(g_tBanMem, szAuth, iExpires) ? iExpires : 0;
+}
+
+public Native_GetBanCount(iPlugin, iParams)
+{
+    return (g_tBanMem != Invalid_Trie) ? TrieGetSize(g_tBanMem) : 0;
+}
+
+public Native_GetStat(iPlugin, iParams)
+{
+    switch (RePruningStat:get_param(1))
+    {
+        case RePruningStat_Mismatches:  return g_iMismatchTotal;
+        case RePruningStat_Kicks:       return g_iKickTotal;
+        case RePruningStat_Bans:        return g_iBanTotal;
+        case RePruningStat_Errors:      return g_iErrCount;
+        case RePruningStat_BanListHits: return g_iBanMemHits;
+        case RePruningStat_BansExpired: return g_iBanExpired;
+        case RePruningStat_BansInvalid: return g_iBanInvalid;
+        case RePruningStat_FileChecks:  return g_iFileChecks;
+    }
+
+    return 0;
 }
 
 public ClCmd_PlayerInfo(id)
