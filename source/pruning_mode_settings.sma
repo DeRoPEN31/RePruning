@@ -1,4 +1,4 @@
-//Name: RePruning Mode Settings v0.0.3 V1
+//Name: RePruning Mode Settings v0.0.4
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -9,7 +9,7 @@
 #include <amxmodx>
 
 #define PLUGIN  "RePruning Mode Settings"
-#define VERSION "v0.0.3 V1"
+#define VERSION "v0.0.4"
 #define AUTHOR  "DeRoPEN_DEv"
 
 new g_pMode;

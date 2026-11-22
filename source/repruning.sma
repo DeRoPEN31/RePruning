@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.3 V1
+//Name: RePruning v0.0.4
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -12,7 +12,7 @@
 #include <reapi>
 
 #define PLUGIN  "RePruning"
-#define VERSION "v0.0.3 V1"
+#define VERSION "v0.0.4"
 #define AUTHOR  "DeRoPEN_DEv"
 
 #define LOG_ERROR   1
@@ -40,6 +40,7 @@ new g_pCorpses, g_pDropWeapons;
 new g_pConsole, g_pHints;
 new g_pFiles, g_pFilesKick;
 new g_pFilesFix, g_pFilesMaxFails, g_pFilesBanTime;
+new g_pBans, g_pBansTTL, g_pBansCleanup, g_pBansMax, g_pIds;
 new g_pLogLevel;
 
 new g_szLogPath[128];
@@ -55,8 +56,10 @@ new Trie:g_tLang;
 new Trie:g_tBanMem;
 new g_iLangCount, g_iLangKeys;
 new g_iBanMemHits;
+new g_iBanExpired, g_iBanInvalid;
 new g_pLang;
 new g_szBanMemPath[128];
+new g_hFwdFlagged, g_hFwdBanned, g_hFwdUnbanned, g_iFwdRet;
 
 new g_iMsgMoney, g_iMsgStatusIcon, g_iMsgSendAudio;
 new g_iMsgTextMsg, g_iMsgClCorpse;
@@ -90,6 +93,11 @@ public plugin_init()
     g_pFilesFix       = register_cvar("pruning_files_fix",       "1");
     g_pFilesMaxFails  = register_cvar("pruning_files_maxfails",  "3");
     g_pFilesBanTime   = register_cvar("pruning_files_bantime",   "30");
+    g_pBans           = register_cvar("pruning_bans",            "1");
+    g_pBansTTL        = register_cvar("pruning_bans_ttl",        "720");
+    g_pBansCleanup    = register_cvar("pruning_bans_cleanup",    "1");
+    g_pBansMax        = register_cvar("pruning_bans_max",        "500");
+    g_pIds            = register_cvar("pruning_ids",             "1");
     g_pLogLevel       = register_cvar("pruning_log_level",       "2");
     g_pLang           = register_cvar("pruning_lang",            "us");
 
@@ -145,12 +153,28 @@ public plugin_init()
     if (g_iMsgHudTextPro)  register_message(g_iMsgHudTextPro,  "Message_HudText");
     if (g_iMsgHudTextArgs) register_message(g_iMsgHudTextArgs, "Message_HudText");
 
-    register_concmd("amx_pruning_reload", "ConCmd_Reload", ADMIN_CFG, " - reload pruning.cfg, languages and ban memory");
-    register_concmd("amx_pruning_status", "ConCmd_Status", ADMIN_CFG, " - module state, counters, errors");
+    register_concmd("amx_pruning_reload", "ConCmd_Reload", ADMIN_CFG, " - reload pruning.cfg, pruning_baning.cfg, languages and ban list");
+    register_clcmd("pruninginfo", "ClCmd_PlayerInfo", 0, " - what is removed on this server and your file-check status");
+    register_clcmd("pruningid", "ClCmd_MyId", 0, " - show your own identifier");
+    register_concmd("pruning_ids", "ConCmd_Ids", ADMIN_BAN, " - identifier table of connected players");
+
+    hook_cvar_change(g_pFiles, "OnFilesToggle");
 
     g_tMismatch = TrieCreate();
     g_tLang = TrieCreate();
     g_tBanMem = TrieCreate();
+
+    g_hFwdFlagged  = CreateMultiForward("repruning_player_flagged",  ET_IGNORE, FP_CELL, FP_STRING);
+    g_hFwdBanned   = CreateMultiForward("repruning_player_banned",   ET_IGNORE, FP_CELL, FP_STRING, FP_CELL);
+    g_hFwdUnbanned = CreateMultiForward("repruning_player_unbanned", ET_IGNORE, FP_STRING);
+
+    register_native("repruning_is_flagged", "Native_IsFlagged");
+    register_native("repruning_get_mismatches", "Native_GetMismatches");
+    register_native("repruning_is_banned", "Native_IsBanned");
+    register_native("repruning_add_ban", "Native_AddBan");
+    register_native("repruning_remove_ban", "Native_RemoveBan");
+    register_native("repruning_get_identifier", "Native_GetIdentifier");
+    register_native("repruning_server_info", "Native_ServerInfo");
 
     register_library("repruning");
 }
@@ -165,20 +189,22 @@ public plugin_cfg()
 
     new szCfgDir[96], szCfgFile[128];
     get_localinfo("amxx_configsdir", szCfgDir, charsmax(szCfgDir));
-    formatex(szCfgFile, charsmax(szCfgFile), "%s/pruning.cfg", szCfgDir);
 
-    if (file_exists(szCfgFile)) {
-        server_cmd("exec %s", szCfgFile);
-        server_exec();
-    } else {
-        Pruning_Log(LOG_ERROR, "configs/pruning.cfg not found — all modules run on default values");
-    }
+    ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning.cfg");
+    ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning_baning.cfg");
+    ValidateBaningCvars();
+
+    if (get_pcvar_num(g_pFiles))
+        FilesLoudWarning("startup");
 
     PerformCleanup();
     ApplyFileChecks();
     OnDropCleanup();
     LoadLanguages();
-    LoadBanMemory();
+    LoadBanList();
+
+    if (get_pcvar_num(g_pBansCleanup))
+        set_task(3600.0, "Task_BanCleanup", _, _, _, "b");
 
     Lang("INIT_1", szMsg, charsmax(szMsg));
     server_print("[RePruning] %s", szMsg);
@@ -187,13 +213,72 @@ public plugin_cfg()
     Lang("INIT_3", szFmt, charsmax(szFmt));
     formatex(szMsg, charsmax(szMsg), szFmt, VERSION);
     server_print("[RePruning] %s", szMsg);
-    server_print("[RePruning] API surface: reserved (planned external module — not in core)");
+    server_print("[RePruning] API: 7 natives + 3 forwards registered — include <repruning.inc> (library repruning)");
 
     new szMap[48];
     get_mapname(szMap, charsmax(szMap));
-    Pruning_Log(LOG_INFO, "===== RePruning v%s | map %s | log level %d | file checks %d | languages %d | ban memory %d =====",
+    Pruning_Log(LOG_INFO, "===== RePruning v%s | map %s | log level %d | file checks %d | languages %d | ban list %d =====",
         VERSION, szMap, get_pcvar_num(g_pLogLevel), g_iFileChecks, g_iLangCount, TrieGetSize(g_tBanMem));
-    Pruning_Log(LOG_INFO, "api trace: public natives/forwards planned as a separate API module (not included in core)");
+    Pruning_Log(LOG_INFO, "api: 7 natives + 3 forwards registered (library repruning, source/repruning.inc)");
+}
+
+ExecConfig(const szDir[], szBuf[], iLen, const szName[])
+{
+    formatex(szBuf, iLen, "%s/%s", szDir, szName);
+
+    if (file_exists(szBuf)) {
+        server_cmd("exec %s", szBuf);
+        server_exec();
+        return 1;
+    }
+
+    Pruning_Log(LOG_ERROR, "configs/%s not found — default values are used", szName);
+    return 0;
+}
+
+ValidateBaningCvars()
+{
+    new iVal = get_pcvar_num(g_pFilesMaxFails);
+    if (iVal < 0 || iVal > 100) {
+        set_pcvar_num(g_pFilesMaxFails, (iVal < 0) ? 0 : 100);
+        Pruning_Log(LOG_ERROR, "validation: pruning_files_maxfails %d out of range 0..100 — clamped", iVal);
+    }
+
+    iVal = get_pcvar_num(g_pFilesBanTime);
+    if (iVal < 0) {
+        set_pcvar_num(g_pFilesBanTime, 0);
+        Pruning_Log(LOG_ERROR, "validation: pruning_files_bantime %d is negative — set to 0", iVal);
+    }
+
+    iVal = get_pcvar_num(g_pBansTTL);
+    if (iVal < 0 || iVal > 87600) {
+        set_pcvar_num(g_pBansTTL, (iVal < 0) ? 0 : 87600);
+        Pruning_Log(LOG_ERROR, "validation: pruning_bans_ttl %d out of range 0..87600 hours — clamped", iVal);
+    }
+
+    iVal = get_pcvar_num(g_pBansMax);
+    if (iVal < 1 || iVal > 10000) {
+        set_pcvar_num(g_pBansMax, (iVal < 1) ? 1 : 10000);
+        Pruning_Log(LOG_ERROR, "validation: pruning_bans_max %d out of range 1..10000 — clamped", iVal);
+    }
+}
+
+public OnFilesToggle(const iPcvar, const szOldValue[], const szNewValue[])
+{
+    if (str_to_num(szNewValue) != 0)
+        FilesLoudWarning("cvar change");
+}
+
+FilesLoudWarning(const szWhen[])
+{
+    server_print("===============================================================");
+    server_print("[RePruning] WARNING: file checks ENABLED (%s)", szWhen);
+    server_print("[RePruning] pruning_files is 1 — client files are compared with reference files");
+    server_print("[RePruning] Reference files must exist on THIS server (configs/pruning_files.cfg)");
+    server_print("[RePruning] A wrong entry can kick EVERY player — verify before use");
+    server_print("===============================================================");
+    Pruning_Log(LOG_ERROR, "FILE CHECKS ENABLED (%s) — pruning_files 1, %d checks active, verify configs/pruning_files.cfg",
+        szWhen, g_iFileChecks);
 }
 
 public ClCmd_Buy(id)
@@ -578,9 +663,7 @@ public inconsistent_file(id, const filename[], reason[64])
     g_iMismatchTotal++;
 
     new szAuth[36], szName[32];
-    get_user_authid(id, szAuth, charsmax(szAuth));
-    if (!szAuth[0] || equal(szAuth, "STEAM_ID_PENDING"))
-        formatex(szAuth, charsmax(szAuth), "uid_%d", get_user_userid(id));
+    GetIdentifier(id, szAuth, charsmax(szAuth));
 
     if (is_user_connected(id))
         get_user_name(id, szName, charsmax(szName));
@@ -598,6 +681,8 @@ public inconsistent_file(id, const filename[], reason[64])
     Pruning_Log(LOG_ERROR, "file mismatch: %s (%s) file ^"%s^" engine reason ^"%s^" — fail #%d",
         szName, szAuth, filename, reason, iFails);
 
+    ExecuteForward(g_hFwdFlagged, g_iFwdRet, id, filename);
+
     if (get_pcvar_num(g_pFilesFix) && is_user_connected(id) && !is_user_bot(id) && !is_user_hltv(id))
         SendFixGuide(id, filename);
 
@@ -612,9 +697,11 @@ public inconsistent_file(id, const filename[], reason[64])
     if (iMaxFails > 0 && iBanTime > 0 && iFails >= iMaxFails) {
 
         server_cmd("banid %d ^"%s^"; writeid", iBanTime, szAuth);
-        BanMemRemember(szAuth, iBanTime);
+        if (get_pcvar_num(g_pBans))
+            BanListRemember(szAuth, iBanTime);
         g_iBanTotal++;
         Pruning_Log(LOG_INFO, "ban %d min: %s (%s) — %d file mismatches", iBanTime, szName, szAuth, iFails);
+        ExecuteForward(g_hFwdBanned, g_iFwdRet, id, szAuth, iBanTime);
 
         new szTpl[128], szKick[192];
         Lang("KICK_BAN", szTpl, charsmax(szTpl));
@@ -763,25 +850,27 @@ Lang(const szKey[], szOut[], iMaxLen)
     }
 }
 
-LoadBanMemory()
+LoadBanList()
 {
     TrieClear(g_tBanMem);
+    g_iBanExpired = 0;
+    g_iBanInvalid = 0;
 
     get_localinfo("amxx_datadir", g_szBanMemPath, charsmax(g_szBanMemPath));
     add(g_szBanMemPath, charsmax(g_szBanMemPath), "/repruning_bans.txt");
 
     if (!file_exists(g_szBanMemPath)) {
-        Pruning_Log(LOG_DEBUG, "ban memory is empty: %s not found yet", g_szBanMemPath);
+        Pruning_Log(LOG_DEBUG, "ban list is empty: %s not found yet", g_szBanMemPath);
         return;
     }
 
     new fp = fopen(g_szBanMemPath, "rt");
     if (!fp) {
-        Pruning_Log(LOG_ERROR, "cannot open ban memory: %s", g_szBanMemPath);
+        Pruning_Log(LOG_ERROR, "cannot open ban list: %s", g_szBanMemPath);
         return;
     }
 
-    new szLine[160], szAuth[36], szMin[16], iCount;
+    new szLine[160], szAuth[36], szTok1[24], szTok2[24], iLoaded, iNow = get_systime();
     while (!feof(fp)) {
         fgets(fp, szLine, charsmax(szLine));
         trim(szLine);
@@ -789,29 +878,134 @@ LoadBanMemory()
         if (!szLine[0] || szLine[0] == ';' || (szLine[0] == '/' && szLine[1] == '/'))
             continue;
 
-        if (parse(szLine, szAuth, charsmax(szAuth), szMin, charsmax(szMin)) < 2)
+        new iTok = parse(szLine, szAuth, charsmax(szAuth), szTok1, charsmax(szTok1), szTok2, charsmax(szTok2));
+        if (iTok < 2) {
+            g_iBanInvalid++;
+            Pruning_Log(LOG_ERROR, "ban list validation: malformed line ^"%s^" — dropped", szLine);
             continue;
+        }
 
-        TrieSetCell(g_tBanMem, szAuth, str_to_num(szMin));
-        iCount++;
+        new iExpires = (iTok >= 3) ? (str_to_num(szTok2) + str_to_num(szTok1) * 60) : str_to_num(szTok1);
+        if (!IsValidAuth(szAuth) || iExpires <= 0) {
+            g_iBanInvalid++;
+            Pruning_Log(LOG_ERROR, "ban list validation: invalid entry ^"%s^" — dropped", szLine);
+            continue;
+        }
+
+        if (iExpires <= iNow) {
+            g_iBanExpired++;
+            Pruning_Log(LOG_INFO, "ban list: expired entry for %s — removed automatically", szAuth);
+            continue;
+        }
+
+        TrieSetCell(g_tBanMem, szAuth, iExpires);
+        iLoaded++;
     }
     fclose(fp);
-    Pruning_Log(LOG_INFO, "ban memory loaded: %d entries (%s)", iCount, g_szBanMemPath);
+
+    if (g_iBanInvalid || g_iBanExpired)
+        BanListSave();
+
+    Pruning_Log(LOG_INFO, "ban list loaded: %d active | %d expired auto-removed | %d invalid dropped (%s)",
+        iLoaded, g_iBanExpired, g_iBanInvalid, g_szBanMemPath);
 }
 
-BanMemRemember(const szAuth[], iMinutes)
+IsValidAuth(const szAuth[])
 {
-    if (g_tBanMem == Invalid_Trie || contain(szAuth, "STEAM_0:") != 0)
+    if (contain(szAuth, "STEAM_") != 0)
+        return 0;
+    return (strlen(szAuth) >= 10) ? 1 : 0;
+}
+
+BanListRemember(const szAuth[], iMinutes)
+{
+    if (g_tBanMem == Invalid_Trie || !IsValidAuth(szAuth))
         return;
 
-    TrieSetCell(g_tBanMem, szAuth, iMinutes);
+    new iNow = get_systime();
+    new iExpires = iNow + iMinutes * 60;
 
-    new fp = fopen(g_szBanMemPath, "at");
-    if (fp) {
-        fprintf(fp, "%s %d %d^n", szAuth, iMinutes, get_systime());
-        fclose(fp);
-        Pruning_Log(LOG_INFO, "ban memory: %s stored (%d min) — %d entries", szAuth, iMinutes, TrieGetSize(g_tBanMem));
+    new iTTL = get_pcvar_num(g_pBansTTL);
+    if (iTTL > 0 && iMinutes > iTTL * 60) {
+        iExpires = iNow + iTTL * 60;
+        Pruning_Log(LOG_ERROR, "validation: ban %d min exceeds pruning_bans_ttl %d h — clamped", iMinutes, iTTL);
     }
+
+    TrieSetCell(g_tBanMem, szAuth, iExpires);
+    BanListEvict();
+    BanListSave();
+
+    new szStamp[32];
+    format_time(szStamp, charsmax(szStamp), "%d.%m.%Y %H:%M", iExpires);
+    Pruning_Log(LOG_INFO, "ban list: %s stored until %s (autonomous) — %d entries", szAuth, szStamp, TrieGetSize(g_tBanMem));
+}
+
+BanListEvict()
+{
+    new iMax = get_pcvar_num(g_pBansMax);
+
+    while (TrieGetSize(g_tBanMem) > iMax) {
+        new Snapshot:iSnap = TrieSnapshotCreate(g_tBanMem);
+        new iDrop = -1, iOldest = 0;
+
+        for (new i = 0; i < TrieSnapshotLength(iSnap); i++) {
+            new szKey[36], iExpires;
+            TrieSnapshotGetKey(iSnap, i, szKey, charsmax(szKey));
+            TrieGetCell(g_tBanMem, szKey, iExpires);
+            if (iDrop == -1 || iExpires < iOldest) {
+                iDrop = i;
+                iOldest = iExpires;
+            }
+        }
+
+        new szKey[36];
+        if (iDrop != -1) {
+            TrieSnapshotGetKey(iSnap, iDrop, szKey, charsmax(szKey));
+            TrieDeleteKey(g_tBanMem, szKey);
+            Pruning_Log(LOG_INFO, "ban list: cap %d reached — earliest-expiring entry %s removed", iMax, szKey);
+        }
+
+        TrieSnapshotDestroy(iSnap);
+
+        if (iDrop == -1)
+            break;
+    }
+}
+
+BanListSave()
+{
+    new fp = fopen(g_szBanMemPath, "wt");
+    if (!fp) {
+        Pruning_Log(LOG_ERROR, "cannot write ban list: %s", g_szBanMemPath);
+        return;
+    }
+
+    new Snapshot:iSnap = TrieSnapshotCreate(g_tBanMem);
+    for (new i = 0; i < TrieSnapshotLength(iSnap); i++) {
+        new szKey[36], iExpires;
+        TrieSnapshotGetKey(iSnap, i, szKey, charsmax(szKey));
+        TrieGetCell(g_tBanMem, szKey, iExpires);
+        fprintf(fp, "%s %d^n", szKey, iExpires);
+    }
+    TrieSnapshotDestroy(iSnap);
+    fclose(fp);
+}
+
+BanListCheckExpired(const szAuth[])
+{
+    new iExpires;
+    if (!TrieGetCell(g_tBanMem, szAuth, iExpires))
+        return 0;
+
+    if (get_systime() < iExpires)
+        return 1;
+
+    TrieDeleteKey(g_tBanMem, szAuth);
+    BanListSave();
+    g_iBanExpired++;
+    Pruning_Log(LOG_INFO, "ban list: entry for %s expired — removed automatically", szAuth);
+    ExecuteForward(g_hFwdUnbanned, g_iFwdRet, szAuth);
+    return 0;
 }
 
 public client_authorized(id)
@@ -819,12 +1013,188 @@ public client_authorized(id)
     new szAuth[36];
     get_user_authid(id, szAuth, charsmax(szAuth));
 
-    new iMinutes;
-    if (g_tBanMem != Invalid_Trie && TrieGetCell(g_tBanMem, szAuth, iMinutes)) {
-        g_iBanMemHits++;
-        Pruning_Log(LOG_INFO, "ban memory hit: %s (%d min) — kicked on connect", szAuth, iMinutes);
-        server_cmd("kick #%d ^"RePruning: file mismatch ban (%d min)^"", get_user_userid(id), iMinutes);
+    if (!get_pcvar_num(g_pBans))
+        return;
+
+    if (!BanListCheckExpired(szAuth))
+        return;
+
+    g_iBanMemHits++;
+
+    new iExpires;
+    TrieGetCell(g_tBanMem, szAuth, iExpires);
+
+    new szStamp[40], szTpl[128], szKick[192];
+    format_time(szStamp, charsmax(szStamp), "%d.%m.%Y %H:%M", iExpires);
+    Lang("BAN_REJECT", szTpl, charsmax(szTpl));
+    formatex(szKick, charsmax(szKick), szTpl, szStamp);
+    Pruning_Log(LOG_INFO, "ban list hit: %s — kicked on connect (auto-expires %s)", szAuth, szStamp);
+    server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
+}
+
+public Task_BanCleanup()
+{
+    if (!get_pcvar_num(g_pBansCleanup) || !get_pcvar_num(g_pBans))
+        return;
+
+    new iNow = get_systime(), iRemoved, szKey[36], iExpires;
+    new Snapshot:iSnap = TrieSnapshotCreate(g_tBanMem);
+
+    for (new i = 0; i < TrieSnapshotLength(iSnap); i++) {
+        TrieSnapshotGetKey(iSnap, i, szKey, charsmax(szKey));
+        TrieGetCell(g_tBanMem, szKey, iExpires);
+
+        if (iExpires <= iNow) {
+            TrieDeleteKey(g_tBanMem, szKey);
+            g_iBanExpired++;
+            iRemoved++;
+            ExecuteForward(g_hFwdUnbanned, g_iFwdRet, szKey);
+        }
     }
+    TrieSnapshotDestroy(iSnap);
+
+    if (iRemoved) {
+        BanListSave();
+        Pruning_Log(LOG_INFO, "ban list cleanup: %d expired entries removed automatically", iRemoved);
+    }
+}
+
+GetIdentifier(id, szBuf[], iLen)
+{
+    get_user_authid(id, szBuf, iLen);
+
+    if (!szBuf[0] || equal(szBuf, "STEAM_ID_PENDING"))
+        formatex(szBuf, iLen, "uid_%d", get_user_userid(id));
+}
+
+public ClCmd_MyId(id)
+{
+    if (!is_user_connected(id))
+        return PLUGIN_HANDLED;
+
+    if (!get_pcvar_num(g_pIds)) {
+        console_print(id, "[RePruning] identifier system is disabled (pruning_ids 0)");
+        return PLUGIN_HANDLED;
+    }
+
+    new szId[36];
+    GetIdentifier(id, szId, charsmax(szId));
+    console_print(id, "[RePruning] your identifier: %s (uid %d)", szId, get_user_userid(id));
+    return PLUGIN_HANDLED;
+}
+
+public ConCmd_Ids(id)
+{
+    if (!get_pcvar_num(g_pIds)) {
+        console_print(id, "[RePruning] identifier system is disabled (pruning_ids 0)");
+        return PLUGIN_HANDLED;
+    }
+
+    new iPlayers[32], iNum;
+    get_players(iPlayers, iNum, "ch");
+
+    console_print(id, "------------- RePruning identifiers v%s -------------", VERSION);
+    console_print(id, "%-4s %-22s %-20s %s", "uid", "identifier", "name", "status");
+
+    for (new i = 0; i < iNum; i++) {
+        new p = iPlayers[i], szId[36], szName[32], szStatus[32], iFails;
+        GetIdentifier(p, szId, charsmax(szId));
+        get_user_name(p, szName, charsmax(szName));
+        TrieGetCell(g_tMismatch, szId, iFails);
+
+        new szAuth[36], iExpires;
+        get_user_authid(p, szAuth, charsmax(szAuth));
+        new iBanned = (TrieGetCell(g_tBanMem, szAuth, iExpires) && get_systime() < iExpires) ? 1 : 0;
+
+        if (iFails && iBanned)
+            formatex(szStatus, charsmax(szStatus), "flagged %d +banned", iFails);
+        else if (iFails)
+            formatex(szStatus, charsmax(szStatus), "flagged %d", iFails);
+        else if (iBanned)
+            copy(szStatus, charsmax(szStatus), "banned");
+        else
+            copy(szStatus, charsmax(szStatus), "clean");
+
+        console_print(id, "%-4d %-22s %-20s %s", get_user_userid(p), szId, szName, szStatus);
+    }
+
+    console_print(id, "------------------------------------------------------");
+    return PLUGIN_HANDLED;
+}
+
+public Native_IsFlagged(iPlugin, iParams)
+{
+    new id = get_param(1);
+    if (id < 1 || id > get_maxplayers() || !is_user_connected(id))
+        return 0;
+
+    new szAuth[36];
+    GetIdentifier(id, szAuth, charsmax(szAuth));
+    return TrieKeyExists(g_tMismatch, szAuth) ? 1 : 0;
+}
+
+public Native_GetMismatches(iPlugin, iParams)
+{
+    new id = get_param(1);
+    if (id < 1 || id > get_maxplayers() || !is_user_connected(id))
+        return 0;
+
+    new szAuth[36], iFails;
+    GetIdentifier(id, szAuth, charsmax(szAuth));
+    TrieGetCell(g_tMismatch, szAuth, iFails);
+    return iFails;
+}
+
+public Native_IsBanned(iPlugin, iParams)
+{
+    new szAuth[36];
+    get_string(1, szAuth, charsmax(szAuth));
+
+    if (!IsValidAuth(szAuth))
+        return 0;
+
+    return BanListCheckExpired(szAuth);
+}
+
+public Native_AddBan(iPlugin, iParams)
+{
+    new szAuth[36];
+    get_string(1, szAuth, charsmax(szAuth));
+    new iMinutes = get_param(2);
+
+    if (!IsValidAuth(szAuth) || iMinutes <= 0 || !get_pcvar_num(g_pBans))
+        return 0;
+
+    BanListCheckExpired(szAuth);
+    BanListRemember(szAuth, iMinutes);
+    return 1;
+}
+
+public Native_RemoveBan(iPlugin, iParams)
+{
+    new szAuth[36];
+    get_string(1, szAuth, charsmax(szAuth));
+
+    if (!TrieKeyExists(g_tBanMem, szAuth))
+        return 0;
+
+    TrieDeleteKey(g_tBanMem, szAuth);
+    BanListSave();
+    Pruning_Log(LOG_INFO, "ban list: %s removed by external plugin (native repruning_remove_ban)", szAuth);
+    ExecuteForward(g_hFwdUnbanned, g_iFwdRet, szAuth);
+    return 1;
+}
+
+public Native_GetIdentifier(iPlugin, iParams)
+{
+    new id = get_param(1);
+    if (id < 1 || id > get_maxplayers() || !is_user_connected(id))
+        return 0;
+
+    new szId[36];
+    GetIdentifier(id, szId, charsmax(szId));
+    set_string(2, szId, get_param(3));
+    return 1;
 }
 
 Pruning_Log(iLevel, const szFmt[], any:...)
@@ -853,7 +1223,15 @@ Pruning_Log(iLevel, const szFmt[], any:...)
         log_amx("ERROR: %s", szMsg);
 }
 
-public ConCmd_Status(id)
+RepLine(szOut[], iLen, const szFmt[], any:...)
+{
+    new szMsg[224];
+    vformat(szMsg, charsmax(szMsg), szFmt, 4);
+    add(szOut, iLen, szMsg);
+    add(szOut, iLen, "^n");
+}
+
+BuildServerReport(szOut[], iLen)
 {
     new szMap[48], szUptime[16];
     get_mapname(szMap, charsmax(szMap));
@@ -861,32 +1239,113 @@ public ConCmd_Status(id)
     new iUp = get_systime() - g_iStartSystime;
     formatex(szUptime, charsmax(szUptime), "%02d:%02d:%02d", iUp / 3600, (iUp % 3600) / 60, iUp % 60);
 
-    console_print(id, "--------------- RePruning v%s ---------------", VERSION);
-    console_print(id, "Map: %s | Uptime: %s | Rounds: %d", szMap, szUptime, g_iRounds);
-    console_print(id, "Modules: buy=%d buyzone=%d money=%d plantzone=%d c4give=%d c4remove=%d",
+    new szCc[8];
+    get_pcvar_string(g_pLang, szCc, charsmax(szCc));
+
+    szOut[0] = 0;
+    RepLine(szOut, iLen, "--------------- RePruning v%s ---------------", VERSION);
+    RepLine(szOut, iLen, "Map: %s | Uptime: %s | Rounds: %d", szMap, szUptime, g_iRounds);
+    RepLine(szOut, iLen, "Modules: buy=%d buyzone=%d money=%d plantzone=%d c4give=%d c4remove=%d",
         get_pcvar_num(g_pBuy), get_pcvar_num(g_pBuyZoneRemove), get_pcvar_num(g_pMoney),
         get_pcvar_num(g_pPlantZone), get_pcvar_num(g_pBombGive), get_pcvar_num(g_pBombRemove));
-    console_print(id, "         icons=%d radio=%d winsnd=%d hostages=%d vip=%d fx=%d decals=%d",
+    RepLine(szOut, iLen, "         icons=%d radio=%d winsnd=%d hostages=%d vip=%d fx=%d decals=%d",
         get_pcvar_num(g_pIcons), get_pcvar_num(g_pRadio), get_pcvar_num(g_pRadioWinSounds),
         get_pcvar_num(g_pHostages), get_pcvar_num(g_pVip), get_pcvar_num(g_pEffects),
         get_pcvar_num(g_pDecals));
-    console_print(id, "         corpses=%d drops=%d console=%d hints=%d files=%d",
+    RepLine(szOut, iLen, "         corpses=%d drops=%d console=%d hints=%d files=%d",
         get_pcvar_num(g_pCorpses), get_pcvar_num(g_pDropWeapons), get_pcvar_num(g_pConsole),
         get_pcvar_num(g_pHints), get_pcvar_num(g_pFiles));
-    console_print(id, "Files: active checks=%d | clients=%d | mismatches=%d | kicks=%d | bans=%d",
+    RepLine(szOut, iLen, "Files: active checks=%d | clients=%d | mismatches=%d | kicks=%d | bans=%d",
         g_iFileChecks, g_iClientsConnected, g_iMismatchTotal, g_iKickTotal, g_iBanTotal);
-
-    new szCc[8];
-    get_pcvar_string(g_pLang, szCc, charsmax(szCc));
-    console_print(id, "Lang: %s | languages=%d | keys=%d | drop cleanup: event-driven (no scan task)",
+    RepLine(szOut, iLen, "Lang: %s | languages=%d | keys=%d | drop cleanup: event-driven (no scan task)",
         szCc, g_iLangCount, g_iLangKeys);
-    console_print(id, "Ban memory: %d entries | hits=%d | file: %s",
-        TrieGetSize(g_tBanMem), g_iBanMemHits, g_szBanMemPath);
-    console_print(id, "API: reserved (planned external module — not in core)");
-    console_print(id, "Errors total: %d | Log level: %d | Log file: %s",
+    RepLine(szOut, iLen, "Ban list: %d active | hits=%d | auto-expired=%d | invalid dropped=%d",
+        TrieGetSize(g_tBanMem), g_iBanMemHits, g_iBanExpired, g_iBanInvalid);
+    RepLine(szOut, iLen, "  bans=%d ttl=%d h cleanup=%d max=%d ids=%d | file: %s",
+        get_pcvar_num(g_pBans), get_pcvar_num(g_pBansTTL), get_pcvar_num(g_pBansCleanup),
+        get_pcvar_num(g_pBansMax), get_pcvar_num(g_pIds), g_szBanMemPath);
+    RepLine(szOut, iLen, "API: library repruning — 7 natives + 3 forwards (source/repruning.inc)");
+    RepLine(szOut, iLen, "Errors total: %d | Log level: %d | Log file: %s",
         g_iErrCount, get_pcvar_num(g_pLogLevel), g_szLogPath);
-    console_print(id, "-------------------------------------------------------------");
+    RepLine(szOut, iLen, "-------------------------------------------------------------");
+}
+
+public Native_ServerInfo(iPlugin, iParams)
+{
+    new iLen = get_param(2), szReport[1280];
+    BuildServerReport(szReport, charsmax(szReport));
+    set_string(1, szReport, iLen);
+    return 1;
+}
+
+public ClCmd_PlayerInfo(id)
+{
+    if (!is_user_connected(id))
+        return PLUGIN_HANDLED;
+
+    new szAuth[36], iFails;
+    GetIdentifier(id, szAuth, charsmax(szAuth));
+    TrieGetCell(g_tMismatch, szAuth, iFails);
+
+    console_print(id, "-------------- RePruning v%s --------------", VERSION);
+
+    if (iFails)
+        console_print(id, "Your status: FLAGGED — %d file mismatch(es) on this server", iFails);
+    else
+        console_print(id, "Your status: clean — no file mismatches");
+
+    new szId[36];
+    GetIdentifier(id, szId, charsmax(szId));
+    console_print(id, "Your identifier: %s", szId);
+    console_print(id, "File checks: %s (%d checks)", get_pcvar_num(g_pFiles) ? "ON" : "OFF", g_iFileChecks);
+
+    new szOn[384], szOff[384];
+    BuildModuleLists(szOn, charsmax(szOn), szOff, charsmax(szOff));
+    console_print(id, "Removed on this server: %s", szOff[0] ? szOff : "(none)");
+    console_print(id, "Left as is: %s", szOn[0] ? szOn : "(none)");
+    console_print(id, "Full server report: pruning_info (optional plugin pruning_info.amxx)");
+    console_print(id, "------------------------------------------------");
     return PLUGIN_HANDLED;
+}
+
+BuildModuleLists(szOn[], iOnLen, szOff[], iOffLen)
+{
+    new iHandles[17];
+    iHandles[0] = g_pBuy;
+    iHandles[1] = g_pBuyZoneRemove;
+    iHandles[2] = g_pMoney;
+    iHandles[3] = g_pPlantZone;
+    iHandles[4] = g_pBombGive;
+    iHandles[5] = g_pBombRemove;
+    iHandles[6] = g_pIcons;
+    iHandles[7] = g_pRadio;
+    iHandles[8] = g_pRadioWinSounds;
+    iHandles[9] = g_pHostages;
+    iHandles[10] = g_pVip;
+    iHandles[11] = g_pEffects;
+    iHandles[12] = g_pDecals;
+    iHandles[13] = g_pCorpses;
+    iHandles[14] = g_pDropWeapons;
+    iHandles[15] = g_pConsole;
+    iHandles[16] = g_pHints;
+
+    static const szNames[][] = { "buy", "buyzones", "money", "plantzones", "C4 give", "C4", "HUD icons",
+        "radio", "win sounds", "hostages", "VIP", "blood/effects", "decals", "corpses", "dropped weapons",
+        "console msgs", "hints" };
+
+    for (new i = 0; i < sizeof(iHandles); i++) {
+        if (get_pcvar_num(iHandles[i]))
+            AddListName(szOff, iOffLen, szNames[i]);
+        else
+            AddListName(szOn, iOnLen, szNames[i]);
+    }
+}
+
+AddListName(szList[], iLen, const szName[])
+{
+    if (szList[0])
+        add(szList, iLen, ", ");
+    add(szList, iLen, szName);
 }
 
 public client_putinserver(id)
@@ -911,18 +1370,16 @@ public ConCmd_Reload(id)
 {
     new szCfgDir[96], szCfgFile[128];
     get_localinfo("amxx_configsdir", szCfgDir, charsmax(szCfgDir));
-    formatex(szCfgFile, charsmax(szCfgFile), "%s/pruning.cfg", szCfgDir);
 
-    if (file_exists(szCfgFile)) {
-        server_cmd("exec %s", szCfgFile);
-        server_exec();
-    }
+    ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning.cfg");
+    ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning_baning.cfg");
+    ValidateBaningCvars();
 
     PerformCleanup();
     ApplyFileChecks();
     OnDropCleanup();
     LoadLanguages();
-    LoadBanMemory();
+    LoadBanList();
 
     new szMsg[96];
     Lang("RELOADED", szMsg, charsmax(szMsg));

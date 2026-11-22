@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.3 V1
+//Name: RePruning v0.0.4
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -9,6 +9,7 @@
 INIT_1 = Le plugin a été initialisé avec succès...
 INIT_2 = Le plugin a été démarré avec succès
 INIT_3 = La version actuelle pour le moment est %s
+BAN_REJECT = Accès refusé : ban actif par vérification de fichiers pour votre SteamID (expire automatiquement : %s)
 FILE_MISMATCH = Le fichier "%s" n'a pas passé la vérification MD5.
 FIX_OPEN = Un guide de correction (Steam Cloud) va s'ouvrir.
 MOTD_TITLE = RePruning : guide de correction
@@ -22,4 +23,4 @@ MOTD_STEP5 = 5. Reconnectez-vous au serveur.
 MOTD_NOTE = Si le fichier est votre config personnelle (userconfig.cfg), prévenez l'admin : ces fichiers diffèrent légitimement et ne doivent pas figurer dans la liste de vérification.
 KICK_MISMATCH = fichier non conforme : %s
 KICK_BAN = fichier non conforme, banni %d min : %s
-RELOADED = Configuration rechargée : pruning.cfg, langues et mémoire des bans.
+RELOADED = Configuration rechargée : pruning.cfg + pruning_baning.cfg, langues et liste des bans.

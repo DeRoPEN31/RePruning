@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.3 V1
+//Name: RePruning v0.0.4
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -9,6 +9,7 @@
 INIT_1 = Pluginet har initierats framgångsrikt...
 INIT_2 = Pluginet har startats framgångsrikt
 INIT_3 = Den aktuella versionen för tillfället är %s
+BAN_REJECT = Åtkomst nekad: aktiv filkontroll-ban för ditt SteamID (upphör automatiskt: %s)
 FILE_MISMATCH = Filen "%s" klarade inte MD5-kontrollen.
 FIX_OPEN = En reparationsguide (Steam Cloud) öppnas nu.
 MOTD_TITLE = RePruning: reparationsguide
@@ -22,4 +23,4 @@ MOTD_STEP5 = 5. Anslut till servern igen.
 MOTD_NOTE = Om filen är din personliga config (userconfig.cfg), säg till admin: sådana filer får legitimt skilja sig och ska inte finnas i kontrollistan.
 KICK_MISMATCH = filkonflikt: %s
 KICK_BAN = filkonflikt, bannlyst %d min: %s
-RELOADED = Konfigurationen har laddats om: pruning.cfg, språk och banminne.
+RELOADED = Konfigurationen har laddats om: pruning.cfg + pruning_baning.cfg, språk och banlista.
