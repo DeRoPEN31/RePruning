@@ -36,6 +36,17 @@ The plugin keeps its own ban list in `addons/amxmodx/data/repruning_bans.txt` �
 created automatically on the first ban. The entries are stored as `steamid expiry_unix`.
 
 - Every entry expires on its own — there is nothing to clean up by hand.
+- Only individual SteamIDs reach the list. A session-only identifier (`uid_<userid>` — the key
+  while the client's SteamID has not arrived yet) and shared pseudo-authids (`STEAM_ID_LAN`,
+  `HLTV`) are never stored: a server restart or a reused userid must never make the plugin
+  punish an innocent client. A flagged client without a SteamID is punished for the session
+  only, and the log reports the skipped ban.
+- Export and import — `amx_pruning_bans_export [file]` writes the active entries to
+  `configs/<file>`, `amx_pruning_bans_import <file>` merges a file back: invalid and expired
+  entries are skipped, `pruning_bans_ttl` and `pruning_bans_max` are applied.
+- The immunity list `configs/pruning_immunity.cfg` (one SteamID per line) marks clients that are
+  never auto-banned: a flagged client on the list is punished for the session only, nothing is
+  persisted. Existing ban entries are not removed by immunity.
 - Expired entries are removed on load and then every hour (`pruning_bans_cleanup 1`).
 - A client on the list is kicked right after the authorization, before the map is even loaded.
 - The list is capped at `pruning_bans_max` entries — the earliest-expiring entry is evicted

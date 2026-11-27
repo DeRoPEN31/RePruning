@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.4
+//Name: RePruning v0.0.5
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -12,7 +12,7 @@
 #include <reapi>
 
 #define PLUGIN  "RePruning"
-#define VERSION "v0.0.4"
+#define VERSION "v0.0.5"
 #define AUTHOR  "DeRoPEN_DEv"
 
 #define LOG_ERROR   1
@@ -59,11 +59,32 @@ new g_iBanMemHits;
 new g_iBanExpired, g_iBanInvalid;
 new g_pLang;
 new g_szBanMemPath[128];
+new Trie:g_tImmune;
+new Trie:g_tCfgSeen;
+new g_szImmunePath[128];
 new g_hFwdFlagged, g_hFwdBanned, g_hFwdUnbanned, g_iFwdRet;
 
 new g_iMsgMoney, g_iMsgStatusIcon, g_iMsgSendAudio;
 new g_iMsgTextMsg, g_iMsgClCorpse;
 new g_iMsgHudText, g_iMsgHudTextPro, g_iMsgHudTextArgs;
+
+// Option ownership: pruning.cfg holds the module/logging/language switches, pruning_baning.cfg
+// the file-check/ban/identifier switches. The lists drive the update compatibility: an old
+// config file is read as is, and options it does not contain keep their defaults (reported in
+// the log, appended by amx_pruning_upgrade).
+static const g_szCfgMain[][24] = {
+    "pruning_buy", "pruning_buyzone_remove", "pruning_money", "pruning_plantzone",
+    "pruning_bomb_give", "pruning_bomb_remove", "pruning_icons", "pruning_radio",
+    "pruning_radio_winsounds", "pruning_hostages", "pruning_vip", "pruning_effects",
+    "pruning_decals", "pruning_corpses", "pruning_dropweapons", "pruning_console",
+    "pruning_hints", "pruning_log_level", "pruning_lang"
+};
+
+static const g_szCfgBaning[][24] = {
+    "pruning_files", "pruning_files_kick", "pruning_files_fix", "pruning_files_maxfails",
+    "pruning_files_bantime", "pruning_bans", "pruning_bans_ttl", "pruning_bans_cleanup",
+    "pruning_bans_max", "pruning_ids"
+};
 
 public plugin_init()
 {
@@ -157,12 +178,17 @@ public plugin_init()
     register_clcmd("pruninginfo", "ClCmd_PlayerInfo", 0, " - what is removed on this server and your file-check status");
     register_clcmd("pruningid", "ClCmd_MyId", 0, " - show your own identifier");
     register_concmd("pruning_ids", "ConCmd_Ids", ADMIN_BAN, " - identifier table of connected players");
+    register_concmd("amx_pruning_bans_export", "ConCmd_BansExport", ADMIN_BAN, " [file] - write the active ban list to configs/<file> (default repruning_bans_export.txt)");
+    register_concmd("amx_pruning_bans_import", "ConCmd_BansImport", ADMIN_BAN, " <file> - merge ban entries from configs/<file> into the ban list");
+    register_concmd("amx_pruning_upgrade", "ConCmd_Upgrade", ADMIN_CFG, " - append options missing from pruning.cfg / pruning_baning.cfg with their current values");
 
     hook_cvar_change(g_pFiles, "OnFilesToggle");
 
     g_tMismatch = TrieCreate();
     g_tLang = TrieCreate();
     g_tBanMem = TrieCreate();
+    g_tImmune = TrieCreate();
+    g_tCfgSeen = TrieCreate();
 
     g_hFwdFlagged  = CreateMultiForward("repruning_player_flagged",  ET_IGNORE, FP_CELL, FP_STRING);
     g_hFwdBanned   = CreateMultiForward("repruning_player_banned",   ET_IGNORE, FP_CELL, FP_STRING, FP_CELL);
@@ -188,6 +214,7 @@ public plugin_natives()
     register_native("repruning_get_ban_expiry", "Native_GetBanExpiry");
     register_native("repruning_get_ban_count", "Native_GetBanCount");
     register_native("repruning_get_stat", "Native_GetStat");
+    register_native("repruning_is_immune", "Native_IsImmune");
 }
 
 public plugin_cfg()
@@ -203,6 +230,8 @@ public plugin_cfg()
 
     ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning.cfg");
     ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning_baning.cfg");
+    CfgCheckFile("pruning.cfg", g_szCfgMain, sizeof(g_szCfgMain), 0);
+    CfgCheckFile("pruning_baning.cfg", g_szCfgBaning, sizeof(g_szCfgBaning), 0);
     ValidateBaningCvars();
 
     if (get_pcvar_num(g_pFiles))
@@ -213,6 +242,7 @@ public plugin_cfg()
     OnDropCleanup();
     LoadLanguages();
     LoadBanList();
+    LoadImmunity();
 
     if (get_pcvar_num(g_pBansCleanup))
         set_task(3600.0, "Task_BanCleanup", _, _, _, "b");
@@ -230,7 +260,7 @@ public plugin_cfg()
     get_mapname(szMap, charsmax(szMap));
     Pruning_Log(LOG_INFO, "===== RePruning v%s | map %s | log level %d | file checks %d | languages %d | ban list %d =====",
         VERSION, szMap, get_pcvar_num(g_pLogLevel), g_iFileChecks, g_iLangCount, TrieGetSize(g_tBanMem));
-    Pruning_Log(LOG_INFO, "api: 7 natives + 3 forwards registered (library repruning, source/repruning.inc)");
+    Pruning_Log(LOG_INFO, "api: 12 natives + 3 forwards registered (library repruning, source/repruning.inc)");
 }
 
 ExecConfig(const szDir[], szBuf[], iLen, const szName[])
@@ -243,7 +273,16 @@ ExecConfig(const szDir[], szBuf[], iLen, const szName[])
         return 1;
     }
 
-    Pruning_Log(LOG_ERROR, "configs/%s not found — default values are used", szName);
+    // The config is missing — generate it from the registered defaults instead of failing.
+    // An existing (possibly older) file is always executed as is, never rewritten.
+    if (CfgGenerate(szName, szBuf)) {
+        server_cmd("exec %s", szBuf);
+        server_exec();
+        Pruning_Log(LOG_INFO, "configs/%s was missing — generated with the default values, safe to edit", szName);
+        return 1;
+    }
+
+    Pruning_Log(LOG_ERROR, "configs/%s not found and could not be generated — default values are used", szName);
     return 0;
 }
 
@@ -710,7 +749,7 @@ public inconsistent_file(id, const filename[], reason[64])
     // never reaches the engine or the ban file — punishing by it would hit innocent clients
     // after a restart; such a client is punished for this session only.
     new bBanReached = (iMaxFails > 0 && iBanTime > 0 && iFails >= iMaxFails);
-    new bBanStored  = (bBanReached && IsValidAuth(szAuth));
+    new bBanStored  = (bBanReached && IsValidAuth(szAuth) && !IsImmune(szAuth));
 
     if (bBanStored) {
 
@@ -728,8 +767,12 @@ public inconsistent_file(id, const filename[], reason[64])
         server_cmd("kick #%d ^"%s^"", get_user_userid(id), szKick);
     } else {
 
-        if (bBanReached)
-            Pruning_Log(LOG_INFO, "ban skipped: ^"%s^" is not an individual SteamID (session-only or shared) — %s is punished for this session only, nothing is persisted", szAuth, szName);
+        if (bBanReached) {
+            if (IsImmune(szAuth))
+                Pruning_Log(LOG_INFO, "ban skipped: %s (%s) is on the immunity list — punished for this session only, nothing is persisted", szName, szAuth);
+            else
+                Pruning_Log(LOG_INFO, "ban skipped: ^"%s^" is not an individual SteamID (session-only or shared) — %s is punished for this session only, nothing is persisted", szAuth, szName);
+        }
 
         if (get_pcvar_num(g_pFilesKick)) {
             g_iKickTotal++;
@@ -1293,7 +1336,8 @@ BuildServerReport(szOut[], iLen)
     RepLine(szOut, iLen, "  bans=%d ttl=%d h cleanup=%d max=%d ids=%d | file: %s",
         get_pcvar_num(g_pBans), get_pcvar_num(g_pBansTTL), get_pcvar_num(g_pBansCleanup),
         get_pcvar_num(g_pBansMax), get_pcvar_num(g_pIds), g_szBanMemPath);
-    RepLine(szOut, iLen, "API: library repruning — 11 natives + 3 forwards (source/repruning.inc)");
+    RepLine(szOut, iLen, "Immunity: %d entries (configs/pruning_immunity.cfg)", TrieGetSize(g_tImmune));
+    RepLine(szOut, iLen, "API: library repruning — 12 natives + 3 forwards (source/repruning.inc)");
     RepLine(szOut, iLen, "Errors total: %d | Log level: %d | Log file: %s",
         g_iErrCount, get_pcvar_num(g_pLogLevel), g_szLogPath);
     RepLine(szOut, iLen, "-------------------------------------------------------------");
@@ -1469,6 +1513,12 @@ public plugin_end()
         TrieDestroy(g_tLang);
     if (g_tBanMem != Invalid_Trie)
         TrieDestroy(g_tBanMem);
+
+    if (g_tImmune != Invalid_Trie)
+        TrieDestroy(g_tImmune);
+
+    if (g_tCfgSeen != Invalid_Trie)
+        TrieDestroy(g_tCfgSeen);
 }
 
 public ConCmd_Reload(id)
@@ -1478,6 +1528,8 @@ public ConCmd_Reload(id)
 
     ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning.cfg");
     ExecConfig(szCfgDir, szCfgFile, charsmax(szCfgFile), "pruning_baning.cfg");
+    CfgCheckFile("pruning.cfg", g_szCfgMain, sizeof(g_szCfgMain), 0);
+    CfgCheckFile("pruning_baning.cfg", g_szCfgBaning, sizeof(g_szCfgBaning), 0);
     ValidateBaningCvars();
 
     PerformCleanup();
@@ -1485,6 +1537,7 @@ public ConCmd_Reload(id)
     OnDropCleanup();
     LoadLanguages();
     LoadBanList();
+    LoadImmunity();
 
     new szMsg[96];
     Lang("RELOADED", szMsg, charsmax(szMsg));
@@ -1497,4 +1550,368 @@ public ConCmd_Reload(id)
     Pruning_Log(LOG_INFO, "config reloaded by admin %s (#%d)", szName,
         (id > 0 && is_user_connected(id)) ? get_user_userid(id) : 0);
     return PLUGIN_HANDLED;
+}
+
+LoadImmunity()
+{
+    TrieClear(g_tImmune);
+
+    get_localinfo("amxx_configsdir", g_szImmunePath, charsmax(g_szImmunePath));
+    add(g_szImmunePath, charsmax(g_szImmunePath), "/pruning_immunity.cfg");
+
+    new fp = fopen(g_szImmunePath, "rt");
+    if (!fp) {
+        Pruning_Log(LOG_INFO, "immunity list is empty: configs/pruning_immunity.cfg not found yet");
+        return;
+    }
+
+    new szLine[96], szAuth[36], iLoaded, iInvalid;
+
+    while (!feof(fp)) {
+        fgets(fp, szLine, charsmax(szLine));
+        trim(szLine);
+
+        if (!szLine[0] || szLine[0] == ';' || (szLine[0] == '/' && szLine[1] == '/'))
+            continue;
+
+        parse(szLine, szAuth, charsmax(szAuth));
+
+        if (!IsValidAuth(szAuth)) {
+            iInvalid++;
+            Pruning_Log(LOG_ERROR, "immunity list: invalid entry ^"%s^" — only individual SteamIDs are allowed", szAuth);
+            continue;
+        }
+
+        TrieSetCell(g_tImmune, szAuth, 1);
+        iLoaded++;
+    }
+    fclose(fp);
+
+    Pruning_Log(LOG_INFO, "immunity list loaded: %d entries | %d invalid dropped | %s", iLoaded, iInvalid, g_szImmunePath);
+}
+
+IsImmune(const szAuth[])
+{
+    return (g_tImmune != Invalid_Trie && TrieKeyExists(g_tImmune, szAuth)) ? 1 : 0;
+}
+
+public Native_IsImmune(iPlugin, iParams)
+{
+    new szAuth[36];
+    get_string(1, szAuth, charsmax(szAuth));
+    return IsImmune(szAuth);
+}
+
+AdminTag(id, szName[], iLen)
+{
+    if (id > 0 && is_user_connected(id)) {
+        get_user_name(id, szName, iLen);
+        return get_user_userid(id);
+    }
+
+    copy(szName, iLen, "server");
+    return 0;
+}
+
+public ConCmd_BansExport(id)
+{
+    if (!get_pcvar_num(g_pBans)) {
+        console_print(id, "[RePruning] ban list is disabled (pruning_bans 0)");
+        return PLUGIN_HANDLED;
+    }
+
+    new szFile[64];
+    read_argv(1, szFile, charsmax(szFile));
+    trim(szFile);
+
+    if (!szFile[0])
+        copy(szFile, charsmax(szFile), "repruning_bans_export.txt");
+
+    if (contain(szFile, "..") != -1 || szFile[0] == '/') {
+        console_print(id, "[RePruning] invalid file name ^"%s^"", szFile);
+        return PLUGIN_HANDLED;
+    }
+
+    new szCfgDir[96], szPath[192];
+    get_localinfo("amxx_configsdir", szCfgDir, charsmax(szCfgDir));
+    formatex(szPath, charsmax(szPath), "%s/%s", szCfgDir, szFile);
+
+    new fp = fopen(szPath, "wt");
+    if (!fp) {
+        console_print(id, "[RePruning] cannot write %s", szPath);
+        Pruning_Log(LOG_ERROR, "ban list export: cannot write %s", szPath);
+        return PLUGIN_HANDLED;
+    }
+
+    fprintf(fp, "// RePruning v%s ban list export — format: steamid expiry_unix^n", VERSION);
+    fprintf(fp, "// import with: amx_pruning_bans_import %s^n", szFile);
+
+    new Snapshot:iSnap = TrieSnapshotCreate(g_tBanMem);
+    new iNow = get_systime(), iExported, iSkipped, szKey[36], iExpires;
+
+    for (new i = 0; i < TrieSnapshotLength(iSnap); i++) {
+        TrieSnapshotGetKey(iSnap, i, szKey, charsmax(szKey));
+        TrieGetCell(g_tBanMem, szKey, iExpires);
+
+        if (iExpires <= iNow) {
+            iSkipped++;
+            continue;
+        }
+
+        fprintf(fp, "%s %d^n", szKey, iExpires);
+        iExported++;
+    }
+    TrieSnapshotDestroy(iSnap);
+    fclose(fp);
+
+    new szName[32], iUserid = AdminTag(id, szName, charsmax(szName));
+    console_print(id, "[RePruning] exported %d active entries to configs/%s%s", iExported, szFile, iSkipped ? " (expired skipped)" : "");
+    Pruning_Log(LOG_INFO, "ban list exported to %s by admin %s (#%d): %d active entries, %d expired skipped", szFile, szName, iUserid, iExported, iSkipped);
+    return PLUGIN_HANDLED;
+}
+
+public ConCmd_BansImport(id)
+{
+    if (!get_pcvar_num(g_pBans)) {
+        console_print(id, "[RePruning] ban list is disabled (pruning_bans 0)");
+        return PLUGIN_HANDLED;
+    }
+
+    new szFile[64];
+    read_argv(1, szFile, charsmax(szFile));
+    trim(szFile);
+
+    if (!szFile[0]) {
+        console_print(id, "[RePruning] usage: amx_pruning_bans_import <file in configs/>");
+        return PLUGIN_HANDLED;
+    }
+
+    if (contain(szFile, "..") != -1 || szFile[0] == '/') {
+        console_print(id, "[RePruning] invalid file name ^"%s^"", szFile);
+        return PLUGIN_HANDLED;
+    }
+
+    new szCfgDir[96], szPath[192];
+    get_localinfo("amxx_configsdir", szCfgDir, charsmax(szCfgDir));
+    formatex(szPath, charsmax(szPath), "%s/%s", szCfgDir, szFile);
+
+    new fp = fopen(szPath, "rt");
+    if (!fp) {
+        console_print(id, "[RePruning] cannot open configs/%s", szFile);
+        return PLUGIN_HANDLED;
+    }
+
+    new szLine[192], szAuth[36], szTok1[24], szTok2[24];
+    new iNow = get_systime(), iTTL = get_pcvar_num(g_pBansTTL);
+    new iAdded, iUpdated, iExpired, iInvalid, iClamped;
+
+    while (!feof(fp)) {
+        fgets(fp, szLine, charsmax(szLine));
+        trim(szLine);
+
+        if (!szLine[0] || szLine[0] == ';' || (szLine[0] == '/' && szLine[1] == '/'))
+            continue;
+
+        new iTok = parse(szLine, szAuth, charsmax(szAuth), szTok1, charsmax(szTok1), szTok2, charsmax(szTok2));
+        if (iTok < 2) {
+            iInvalid++;
+            continue;
+        }
+
+        new iExpires = (iTok >= 3) ? (str_to_num(szTok2) + str_to_num(szTok1) * 60) : str_to_num(szTok1);
+        if (!IsValidAuth(szAuth) || iExpires <= 0) {
+            iInvalid++;
+            continue;
+        }
+
+        if (iExpires <= iNow) {
+            iExpired++;
+            continue;
+        }
+
+        if (iTTL > 0 && iExpires > iNow + iTTL * 60) {
+            iExpires = iNow + iTTL * 60;
+            iClamped++;
+        }
+
+        if (TrieKeyExists(g_tBanMem, szAuth))
+            iUpdated++;
+        else
+            iAdded++;
+
+        TrieSetCell(g_tBanMem, szAuth, iExpires);
+    }
+    fclose(fp);
+
+    if (iAdded || iUpdated) {
+        BanListEvict();
+        BanListSave();
+    }
+
+    new szName[32], iUserid = AdminTag(id, szName, charsmax(szName));
+    console_print(id, "[RePruning] import: %d added, %d updated, %d expired skipped, %d invalid skipped%s", iAdded, iUpdated, iExpired, iInvalid, iClamped ? ", TTL clamped" : "");
+    Pruning_Log(LOG_INFO, "ban list imported from %s by admin %s (#%d): %d added, %d updated, %d expired skipped, %d invalid skipped, %d clamped", szFile, szName, iUserid, iAdded, iUpdated, iExpired, iInvalid, iClamped);
+    return PLUGIN_HANDLED;
+}
+
+public ConCmd_Upgrade(id)
+{
+    new iAdded = CfgCheckFile("pruning.cfg", g_szCfgMain, sizeof(g_szCfgMain), 1);
+    iAdded += CfgCheckFile("pruning_baning.cfg", g_szCfgBaning, sizeof(g_szCfgBaning), 1);
+
+    new szName[32], iUserid = AdminTag(id, szName, charsmax(szName));
+
+    if (iAdded)
+        console_print(id, "[RePruning] %d option(s) appended to your configs (originals saved as .bak)", iAdded);
+    else
+        console_print(id, "[RePruning] nothing to add — both configs already contain every known option");
+
+    Pruning_Log(LOG_INFO, "config upgrade by admin %s (#%d): %d option(s) appended", szName, iUserid, iAdded);
+    return PLUGIN_HANDLED;
+}
+
+// Update compatibility: reads the config, marks every pruning_* option it contains in g_tCfgSeen
+// and reports (or, with iWrite, appends to the file) the options missing from it. The values of
+// the options the admin set are never touched.
+CfgCheckFile(const szName[], const szList[][], iCount, iWrite)
+{
+    new szCfgDir[96], szPath[160];
+    get_localinfo("amxx_configsdir", szCfgDir, charsmax(szCfgDir));
+    formatex(szPath, charsmax(szPath), "%s/%s", szCfgDir, szName);
+
+    TrieClear(g_tCfgSeen);
+
+    new fp = fopen(szPath, "rt");
+    if (!fp) {
+        Pruning_Log(LOG_ERROR, "%s: cannot open for the option check", szName);
+        return iCount;
+    }
+
+    new szLine[256], szKey[64];
+
+    while (!feof(fp)) {
+        fgets(fp, szLine, charsmax(szLine));
+        trim(szLine);
+
+        if (!szLine[0] || szLine[0] == ';' || szLine[0] == '#' || (szLine[0] == '/' && szLine[1] == '/'))
+            continue;
+
+        if (parse(szLine, szKey, charsmax(szKey)) >= 1)
+            TrieSetCell(g_tCfgSeen, szKey, 1);
+    }
+    fclose(fp);
+
+    new iMissing, szMiss[384], szItem[40];
+
+    for (new i = 0; i < iCount; i++) {
+        if (TrieKeyExists(g_tCfgSeen, szList[i]))
+            continue;
+
+        iMissing++;
+
+        if (iMissing > 1)
+            add(szMiss, charsmax(szMiss), ", ");
+
+        formatex(szItem, charsmax(szItem), "%s", szList[i]);
+        add(szMiss, charsmax(szMiss), szItem);
+    }
+
+    if (!iMissing) {
+        Pruning_Log(LOG_INFO, "%s: all %d options present", szName, iCount);
+        return 0;
+    }
+
+    if (!iWrite) {
+        Pruning_Log(LOG_INFO, "%s: %d/%d options present — missing (defaults are used): %s", szName, iCount - iMissing, iCount, szMiss);
+        return iMissing;
+    }
+
+    new szBak[176];
+    formatex(szBak, charsmax(szBak), "%s.bak", szPath);
+    CfgCopyFile(szPath, szBak);
+
+    new fpw = fopen(szPath, "at");
+    if (!fpw) {
+        Pruning_Log(LOG_ERROR, "%s: cannot append %d missing options — write failed", szName, iMissing);
+        return iMissing;
+    }
+
+    fprintf(fpw, "^n// added by RePruning v%s (amx_pruning_upgrade) — options missing from this file, current values^n", VERSION);
+
+    for (new i = 0; i < iCount; i++) {
+        if (TrieKeyExists(g_tCfgSeen, szList[i]))
+            continue;
+
+        new szVal[64];
+        CfgCurValue(szList[i], szVal, charsmax(szVal));
+        fprintf(fpw, "%s %s^n", szList[i], szVal);
+    }
+    fclose(fpw);
+
+    Pruning_Log(LOG_INFO, "%s: %d missing option(s) appended with their current values (backup: %s)", szName, iMissing, szBak);
+    return iMissing;
+}
+
+CfgCurValue(const szName[], szVal[], iLen)
+{
+    new p = get_cvar_pointer(szName);
+
+    if (p)
+        get_pcvar_string(p, szVal, iLen);
+    else
+        copy(szVal, iLen, "?");
+}
+
+CfgGenerate(const szName[], const szPath[])
+{
+    if (!equal(szName, "pruning.cfg") && !equal(szName, "pruning_baning.cfg"))
+        return 0;
+
+    new fp = fopen(szPath, "wt");
+    if (!fp)
+        return 0;
+
+    fprintf(fp, "// RePruning %s — generated automatically because the file was missing^n", szName);
+    fprintf(fp, "// Every value is the current default. The file is safe to edit and safe to keep^n");
+    fprintf(fp, "// on plugin updates — missing options are appended by amx_pruning_upgrade.^n^n");
+
+    if (equal(szName, "pruning.cfg")) {
+        for (new i = 0; i < sizeof(g_szCfgMain); i++) {
+            new szVal[64];
+            CfgCurValue(g_szCfgMain[i], szVal, charsmax(szVal));
+            fprintf(fp, "%s %s^n", g_szCfgMain[i], szVal);
+        }
+    } else {
+        for (new i = 0; i < sizeof(g_szCfgBaning); i++) {
+            new szVal[64];
+            CfgCurValue(g_szCfgBaning[i], szVal, charsmax(szVal));
+            fprintf(fp, "%s %s^n", g_szCfgBaning[i], szVal);
+        }
+    }
+
+    fclose(fp);
+    return 1;
+}
+
+CfgCopyFile(const szFrom[], const szTo[])
+{
+    new fpIn = fopen(szFrom, "rt");
+    if (!fpIn)
+        return 0;
+
+    new fpOut = fopen(szTo, "wt");
+    if (!fpOut) {
+        fclose(fpIn);
+        return 0;
+    }
+
+    new szLine[512];
+    while (!feof(fpIn)) {
+        fgets(fpIn, szLine, charsmax(szLine));
+        fputs(fpOut, szLine);
+    }
+
+    fclose(fpIn);
+    fclose(fpOut);
+    return 1;
 }

@@ -8,6 +8,9 @@
 | `amx_pruning_reload` | `ADMIN_CFG` | Reload `pruning.cfg`, `pruning_baning.cfg`, the languages and the ban list. |
 | `amx_pruning_mode` | `ADMIN_CFG` | Show the active mode and the available presets. |
 | `amx_pruning_mode_reload` | `ADMIN_CFG` | Re-read `pruning_mode_settings.cfg` and re-apply the mode. |
+| `amx_pruning_bans_export` | `ADMIN_BAN` | Write the active ban list entries to `configs/<file>` (default `repruning_bans_export.txt`). |
+| `amx_pruning_bans_import` | `ADMIN_BAN` | Merge ban entries from `configs/<file>` into the ban list — invalid and expired entries are skipped, `pruning_bans_ttl` and `pruning_bans_max` are applied. |
+| `amx_pruning_upgrade` | `ADMIN_CFG` | Append options missing from `pruning.cfg` / `pruning_baning.cfg` (for example the ones added by a plugin update) with their current values — the original file is kept as `.bak`. |
 | `pruning_info` | `ADMIN_CFG` | Full server report — modules, file checks, ban list and validation. Needs `pruning_info.amxx`. |
 | `amx_pruning_status` | `ADMIN_CFG` | Alias of `pruning_info`. Needs `pruning_info.amxx`. |
 

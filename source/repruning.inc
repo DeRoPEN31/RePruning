@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.4
+//Name: RePruning v0.0.5
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -83,3 +83,7 @@ native repruning_get_ban_expiry(const authid[]);
 // Returns 1 on success, 0 when the buffer is too small for the full data (the buffer is left
 // untouched then). This is the programmatic counterpart of repruning_server_info().
 native repruning_server_data(output[], const maxlen);
+
+// 1 if the authid is on the immunity list (configs/pruning_immunity.cfg) — such clients are
+// never auto-banned by the file-check system, else 0. Only individual SteamIDs are meaningful.
+native repruning_is_immune(const authid[]);

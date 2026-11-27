@@ -27,6 +27,7 @@ core plugin is present — it refuses to load instead of half-working. Put such 
 | `repruning_get_ban_expiry(authid)` | Unix time when the active ban entry for the authid expires, `0` = no active entry. Only individual SteamIDs are accepted. |
 | `repruning_get_ban_count()` | Number of entries currently in the ban list. |
 | `repruning_get_stat(stat)` | Uptime counter, one of `RePruningStat_*`: mismatches, kicks, bans, errors, ban list hits, expired and invalid entries, active file checks. |
+| `repruning_is_immune(authid)` | `1` if the authid is on the immunity list (`configs/pruning_immunity.cfg`) — such clients are never auto-banned by the file-check system, else `0`. |
 
 Module and mode states are plain cvars (`pruning_*`) — read them with cvar natives if you need
 them; the natives above expose only the internal runtime state.
