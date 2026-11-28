@@ -1,6 +1,6 @@
-# RePruning
+# RePruning v0.0.6
 
-![Version](https://img.shields.io/badge/version-0.0.5-blue)
+![Version](https://img.shields.io/badge/version-0.0.6-blue)
 ![Game](https://img.shields.io/badge/game-Counter--Strike%201.6-orange)
 ![Platform](https://img.shields.io/badge/platform-ReAPI%20%7C%20ReHLDS%20%7C%20ReGameDLL-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -65,7 +65,7 @@ hooks and does not initialise on a stock engine.
    source/                                           # plugin source — not needed on the server
    ```
 
-2. Unpack the archive — it contains the `RePruning_v0.0.5/` folder — and copy its contents into
+2. Unpack the archive — it contains the `RePruning_v0.0.6/` folder — and copy its contents into
    the game server folder, so that the plugins end up in `addons/amxmodx/plugins/`, the configs
    in `addons/amxmodx/configs/` and the languages in `addons/amxmodx/data/repruning/`.
 3. Add the plugins to `addons/amxmodx/configs/plugins.ini` — the order matters:
@@ -130,3 +130,4 @@ Sharing the plugin with other server owners is just as welcome as a star.
 ## License
 
 Released under the [MIT License](LICENSE). Copyright © 2026 DeRoPEN_DEv.
+
