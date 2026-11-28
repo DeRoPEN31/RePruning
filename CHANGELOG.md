@@ -23,7 +23,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing yet.
 
+## [0.0.6] — 2026-11-27
+
+### Fixed
+
+- Crash window on map changes — the whole configuration (configs, mode preset, languages,
+  ban list, immunity list) is applied on the next frame after the map load instead of inside
+  the map-load frame: `server_exec()` no longer flushes the engine command buffer mid-load.
+- Stack corruption on a malformed language line — a `key = text` line with a key longer than
+  63 characters overflowed a stack buffer; such lines are dropped with an `[ERROR]` entry now.
+- Ban TTL clamp treated hours as minutes — `pruning_bans_ttl` shortened bans 60× below the
+  ceiling; the same bug hit `amx_pruning_bans_import`. Both clamp in hours now.
+- Auto mode state — `amx_pruning_mode` shows the really applied mode and its source (map
+  prefix auto / configured mode / nothing applied); manual `pruning_mode` /
+  `pruning_mode_auto` cvar edits no longer leak to the next maps — the settings file
+  restores the configured values on every map load.
+- The client counter is decremented on disconnect instead of growing forever.
+- The startup server print reports the actual native count (12, was 7).
+
+### Changed
+
+- Nothing — no new features, cvars or options; pure stabilization, a drop-in replacement
+  for 0.0.5.
+
 ## [0.0.5] — 2026-11-27
+
+### Added
+
+- Nothing. The feature set is identical to 0.0.4 — no new features, cvars or options.
+
+### Changed
+
+- The version of the build is reported as `0.0.5`.
+
+### Fixed
+
+- The 0.0.4 build failed on the target server stack: all three plugins are recompiled against
+  the exact module versions the server runs (ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev +
+  ReGameDLL 5.30.0.814-dev), so they load and work there.
+
+### Removed
+
+- Nothing.
+
+## [0.0.4] — 2026-11-22
 
 ### Added
 
@@ -92,81 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pruning_mode_auto` and `map` commands) instead of being engine-executed — a `map` line can no
   longer be mistaken for the engine level-change command, and the same file now carries the map
   prefix rules.
-- The `amx_pruning_status` command moved to the optional `pruning_info.amxx` plugin.
-- The documentation is split — the README now holds only the description, download, installation
-  and credits; the configuration, commands, modes, file checks, languages, API and repository
-  structure moved to the topic files in `docs/`.
-- The version of the build is reported as `0.0.5`.
-
-### Fixed
-
-- The dropped weapons are now removed immediately on the drop event, instead of waiting for the
-  next background pass.
-- The ban list and the engine `banid` only accept an individual SteamID (`STEAM_0:...`).
-  Session-only identifiers (`uid_<userid>` — a client whose SteamID has not arrived yet) and
-  shared pseudo-authids (`STEAM_ID_LAN`, `HLTV`) are never stored and never passed to the
-  engine, so a server restart or a reused userid can never make the plugin punish an innocent
-  client. A flagged client without a SteamID is punished for the session only, the log reports
-  the skipped ban, and legacy ban-file entries with such keys are dropped as invalid on load.
-- The core registers the `repruning` library in `plugin_natives()`, which AMXX calls at load
-  time. It used to register in `plugin_init()`, which runs only after every plugin is already
-  loaded, so plugins using the API failed with `bad load` — `Module/Library "repruning" required
-  for plugin. Check modules.ini`. With the fix `pruning_info.amxx` loads correctly when placed
-  after `repruning.amxx` in `plugins.ini`.
-
-### Removed
-
-- Nothing.
-
-## [0.0.4] — 2026-11-22
-
-### Added
-
-- Public API — `repruning.inc` with 11 natives (`repruning_is_flagged`, `repruning_get_mismatches`,
-  `repruning_is_banned`, `repruning_add_ban`, `repruning_remove_ban`, `repruning_get_identifier`,
-  `repruning_server_info`, `repruning_server_data`, `repruning_get_ban_expiry`,
-  `repruning_get_ban_count`, `repruning_get_stat`) and 3 forwards (`repruning_player_flagged`,
-  `repruning_player_banned`, `repruning_player_unbanned`), so other plugins can read the state of
-  the plugin, manage the ban list and react to the bans. Machine-readable counterparts for
-  programmatic consumers: `repruning_server_data` (versioned `key=value` lines),
-  `repruning_get_ban_expiry`, `repruning_get_ban_count` and `repruning_get_stat`, while
-  `repruning_server_info` stays the display report. Because of `#pragma library "repruning"` a
-  plugin that uses the API only loads when the core plugin is present.
-- Autonomous ban list — `pruning_bans`, `pruning_bans_ttl`, `pruning_bans_cleanup` and
-  `pruning_bans_max`: the entries expire on their own, are cleaned up automatically and the
-  list is capped.
-- Ban file validation and conversion — malformed and expired entries in `repruning_bans.txt` are
-  dropped with a log report; the 0.0.3 format (`steamid minutes added_unix`) converts to the new
-  `steamid expiry_unix` format automatically, no manual editing.
-- Loud warning when file checks are enabled — switching `pruning_files` to `1` prints a prominent
-  multi-line warning to the server console and the log, so the kick/ban switch is never enabled
-  by accident.
-- Cvar validation — `pruning_files_maxfails`, `pruning_files_bantime`, `pruning_bans_ttl` and
-  `pruning_bans_max` are checked on range and clamped.
-- Game mode presets — `pruning_mode_settings.amxx` applies a ready set of modules for ZM,
-  DeathRun, CSDM, DM, Pub or Lasers with one cvar. Six presets ship with the release, and any
-  own preset can be added as `configs/pruning_mode_<name>.cfg`.
-- Identifier system — `pruningid` shows your own identifier, `pruning_ids` prints the table of
-  all connected players (uid, identifier, name, status). The identifier is the SteamID, or
-  `uid_<userid>` when there is no SteamID yet — the same key the plugin uses for mismatch
-  tracking and bans. Controlled by `pruning_ids`.
-- `pruning_info.amxx` — a standalone status command (`pruning_info` / `amx_pruning_status`)
-  that only reads the state, without hooks and tasks.
-- `pruninginfo` chat command — what is removed on this server, your file-check status and your
-  identifier.
-- `amx_pruning_reload` — reload of `pruning.cfg`, `pruning_baning.cfg`, the languages and the
-  ban list.
-- `BAN_REJECT` language key — the connect-time rejection reason with the auto-expiry date,
-  translated into all nine languages.
-- The configuration is split into `pruning.cfg` (modules, logging, language) and
-  `pruning_baning.cfg` (file checks, bans, identifiers).
-
-### Changed
-
-- The ban list stores the absolute expiry time (`steamid expiry_unix`) instead of the ban
-  length, so the entries can expire on their own.
-- The mode presets are read from `configs/pruning_mode_settings.cfg`, and the available presets
-  are discovered automatically in `configs/`.
 - The `amx_pruning_status` command moved to the optional `pruning_info.amxx` plugin.
 - The documentation is split — the README now holds only the description, download, installation
   and credits; the configuration, commands, modes, file checks, languages, API and repository
@@ -280,7 +248,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing yet.
 
-[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.5...HEAD
+[Unreleased]: https://github.com/DeRoPEN31/RePruning/compare/0.0.6...HEAD
+[0.0.6]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.6
 [0.0.5]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.5
 [0.0.4]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.4
 [0.0.3]: https://github.com/DeRoPEN31/RePruning/releases/tag/0.0.3

@@ -1,5 +1,7 @@
 # Repository layout and plugins
 
+> Applies to RePruning **v0.0.6**.
+
 ## Repository layout
 
 ```

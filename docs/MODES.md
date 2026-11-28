@@ -1,5 +1,7 @@
 # Game modes
 
+> Applies to RePruning **v0.0.6**.
+
 The mode plugin (`pruning_mode_settings.amxx`) applies a preset with a single cvar. Set it in
 `addons/amxmodx/configs/pruning_mode_settings.cfg`:
 

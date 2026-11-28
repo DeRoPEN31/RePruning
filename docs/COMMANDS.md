@@ -1,5 +1,7 @@
 # Commands
 
+> Applies to RePruning **v0.0.6**.
+
 | Command | Access | Description |
 | :------ | :----- | :---------- |
 | `pruninginfo` | everyone | Chat command — what is removed on this server, your file-check status and your identifier. |

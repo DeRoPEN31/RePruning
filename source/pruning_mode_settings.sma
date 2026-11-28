@@ -1,4 +1,4 @@
-//Name: RePruning Mode Settings v0.0.5
+//Name: RePruning Mode Settings v0.0.6
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -9,7 +9,7 @@
 #include <amxmodx>
 
 #define PLUGIN  "RePruning Mode Settings"
-#define VERSION "v0.0.5"
+#define VERSION "v0.0.6"
 #define AUTHOR  "DeRoPEN_DEv"
 
 new g_pMode;
@@ -24,6 +24,13 @@ static const g_szMapPreset[][] = { "zm",  "zm",  "deathrun", "deathrun", "dm",  
 new g_szCustPrefix[32][32];
 new g_szCustPreset[32][32];
 new g_iCustRules;
+
+// The state of the actually applied mode: what really ran on this map and where it came
+// from. The pruning_mode cvar alone does not show it — with auto mode the applied preset
+// is picked by the map prefix and may differ from the configured cvar value.
+new g_szAppliedMode[32];
+new bool:g_bAppliedAuto;
+new g_szAutoPrefix[32];
 
 public plugin_init()
 {
@@ -41,6 +48,13 @@ public plugin_init()
 }
 
 public plugin_cfg()
+{
+    // Applied on the next frame like the core plugin: the preset exec flushes the engine
+    // command buffer with server_exec(), which must not happen inside the map-load frame.
+    set_task(0.1, "Task_ModeCfg");
+}
+
+public Task_ModeCfg()
 {
     LoadModeSettings();
     DiscoverModes();
@@ -60,11 +74,16 @@ LoadModeSettings()
 
     new fp = fopen(szPath, "rt");
     if (!fp) {
-        server_print("[RePruning Mode] configs/pruning_mode_settings.cfg not found — pruning_mode stays on its default value");
+        // The settings file is the single source of truth: manual cvar edits from the
+        // previous map must not leak, so the registered defaults are restored.
+        set_pcvar_string(g_pMode, "");
+        set_pcvar_num(g_pAuto, 1);
+        server_print("[RePruning Mode] configs/pruning_mode_settings.cfg not found — pruning_mode and pruning_mode_auto are reset to their defaults");
         return;
     }
 
     new szLine[192], szKey[32], szArg1[48], szArg2[48];
+    new bModeLine, bAutoLine;
 
     while (!feof(fp)) {
         fgets(fp, szLine, charsmax(szLine));
@@ -78,8 +97,10 @@ LoadModeSettings()
 
         if (equal(szKey, "pruning_mode")) {
             set_pcvar_string(g_pMode, szArg1);
+            bModeLine = true;
         } else if (equal(szKey, "pruning_mode_auto")) {
             set_pcvar_string(g_pAuto, szArg1);
+            bAutoLine = true;
         } else if (equal(szKey, "map")) {
             if (!szArg2[0] || !ModeNameValid(szArg1) || !ModeNameValid(szArg2)) {
                 log_amx("[RePruning Mode] bad map rule ^"%s^" — expected: map <prefix> <preset>", szLine);
@@ -99,6 +120,13 @@ LoadModeSettings()
     }
 
     fclose(fp);
+
+    // An option the settings file does not define is restored to its default on every load,
+    // so a value set by hand mid-map does not silently survive into the next maps.
+    if (!bModeLine)
+        set_pcvar_string(g_pMode, "");
+    if (!bAutoLine)
+        set_pcvar_num(g_pAuto, 1);
 
     if (g_iCustRules)
         log_amx("[RePruning Mode] %d map prefix rule(s) loaded from pruning_mode_settings.cfg", g_iCustRules);
@@ -198,6 +226,10 @@ AutoModeSelect(szPick[], iPickLen, szPrefix[], iPrefixLen)
 
 ApplyMode()
 {
+    g_szAppliedMode[0] = 0;
+    g_bAppliedAuto = false;
+    g_szAutoPrefix[0] = 0;
+
     new szMode[32];
     get_pcvar_string(g_pMode, szMode, charsmax(szMode));
     trim(szMode);
@@ -205,22 +237,31 @@ ApplyMode()
     if (get_pcvar_num(g_pAuto)) {
         new szPick[32], szPrefix[32];
 
-        if (AutoModeSelect(szPick, charsmax(szPick), szPrefix, charsmax(szPrefix)))
+        if (AutoModeSelect(szPick, charsmax(szPick), szPrefix, charsmax(szPrefix))) {
             copy(szMode, charsmax(szMode), szPick);
+            g_bAppliedAuto = true;
+            copy(g_szAutoPrefix, charsmax(g_szAutoPrefix), szPrefix);
+        }
     }
 
     if (!szMode[0]) {
+        g_bAppliedAuto = false;
+        g_szAutoPrefix[0] = 0;
         server_print("[RePruning Mode] pruning_mode is empty — nothing applied");
         return;
     }
 
     if (!ModeNameValid(szMode)) {
+        g_bAppliedAuto = false;
+        g_szAutoPrefix[0] = 0;
         server_print("[RePruning Mode] invalid mode name ^"%s^" (allowed: a-z 0-9 _)", szMode);
         log_amx("[RePruning Mode] rejected invalid mode name ^"%s^"", szMode);
         return;
     }
 
     if (equal(szMode, "custom")) {
+        g_bAppliedAuto = false;
+        g_szAutoPrefix[0] = 0;
         server_print("[RePruning Mode] custom mode — no preset applied (manage configs/pruning.cfg manually)");
         return;
     }
@@ -230,6 +271,8 @@ ApplyMode()
     formatex(szCfgFile, charsmax(szCfgFile), "%s/pruning_mode_%s.cfg", szCfgDir, szMode);
 
     if (!file_exists(szCfgFile)) {
+        g_bAppliedAuto = false;
+        g_szAutoPrefix[0] = 0;
         server_print("[RePruning Mode] preset %s not found — nothing applied", szCfgFile);
         log_amx("[RePruning Mode] preset ^"%s^" not found", szCfgFile);
         return;
@@ -237,6 +280,8 @@ ApplyMode()
 
     server_cmd("exec %s", szCfgFile);
     server_exec();
+
+    copy(g_szAppliedMode, charsmax(g_szAppliedMode), szMode);
 
     server_print("[RePruning Mode] mode ^"%s^" applied (%s)", szMode, szCfgFile);
     log_amx("[RePruning Mode] mode ^"%s^" applied", szMode);
@@ -248,7 +293,10 @@ public ConCmd_Mode(id)
     get_pcvar_string(g_pMode, szMode, charsmax(szMode));
 
     console_print(id, "----------- RePruning Mode Settings v%s -----------", VERSION);
-    console_print(id, "Active mode: %s", szMode[0] ? szMode : "(empty)");
+    console_print(id, "Configured mode: %s", szMode[0] ? szMode : "(empty)");
+    console_print(id, "Active mode: %s", g_szAppliedMode[0] ? g_szAppliedMode : "(nothing applied)");
+    if (g_bAppliedAuto)
+        console_print(id, "Auto: preset ^"%s^" selected by the map prefix ^"%s^"", g_szAppliedMode, g_szAutoPrefix);
     console_print(id, "Auto mode by map prefix: %s (pruning_mode_auto)", get_pcvar_num(g_pAuto) ? "ON" : "OFF");
     console_print(id, "Map prefixes: %d built-in + %d from the settings file", sizeof(g_szMapPrefix), g_iCustRules);
     console_print(id, "Preset files found in configs/: %d", g_iModes);
@@ -267,8 +315,8 @@ public ConCmd_ModeReload(id)
     DiscoverModes();
     ApplyMode();
 
-    new szMode[32];
-    get_pcvar_string(g_pMode, szMode, charsmax(szMode));
-    console_print(id, "[RePruning Mode] settings reloaded, active mode: %s", szMode[0] ? szMode : "(empty)");
+    console_print(id, "[RePruning Mode] settings reloaded, active mode: %s%s",
+        g_szAppliedMode[0] ? g_szAppliedMode : "(nothing applied)",
+        g_bAppliedAuto ? " (auto by map prefix)" : "");
     return PLUGIN_HANDLED;
 }

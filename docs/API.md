@@ -1,5 +1,7 @@
 # API for other plugins
 
+> Applies to RePruning **v0.0.6**.
+
 The core plugin exposes a library called `repruning`. Put `repruning.inc` into
 `addons/amxmodx/scripting/include/` and include it after `<amxmodx>`:
 

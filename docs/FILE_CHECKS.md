@@ -1,5 +1,7 @@
 # File checks, ban list and Steam Cloud
 
+> Applies to RePruning **v0.0.6**.
+
 ## File checks
 
 The plugin can verify the files of the client against a list of reference files on the server

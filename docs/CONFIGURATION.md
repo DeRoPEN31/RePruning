@@ -1,5 +1,7 @@
 # Configuration
 
+> Applies to RePruning **v0.0.6**.
+
 Every setting is a switch — `0` disables the feature, `1` enables it. The options are split
 between two files:
 

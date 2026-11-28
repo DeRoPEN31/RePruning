@@ -1,4 +1,4 @@
-//Name: RePruning Info v0.0.5
+//Name: RePruning Info v0.0.6
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+; optional add-on for repruning.amxx
@@ -11,7 +11,7 @@
 
 public plugin_init()
 {
-    register_plugin("RePruning Info", "0.0.5", "DeRoPEN_DEv");
+    register_plugin("RePruning Info", "0.0.6", "DeRoPEN_DEv");
 
     register_concmd("pruning_info", "ConCmd_Info", ADMIN_CFG, " - full RePruning state: modules, file checks, ban list, validation");
     register_concmd("amx_pruning_status", "ConCmd_Info", ADMIN_CFG, " - alias of pruning_info");

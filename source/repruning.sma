@@ -1,4 +1,4 @@
-//Name: RePruning v0.0.5
+//Name: RePruning v0.0.6
 //Author: DeRoPEN_DEv
 //Platform: ReHLDS
 //Mandatory: ReHLDS 3.15.0.896-dev + ReAPI v5.29.0.359-dev + Metamod-R 1.3.0.149 + AMXModX 1.10+ + ReGameDLL 5.30.0.814-dev
@@ -12,7 +12,7 @@
 #include <reapi>
 
 #define PLUGIN  "RePruning"
-#define VERSION "v0.0.5"
+#define VERSION "v0.0.6"
 #define AUTHOR  "DeRoPEN_DEv"
 
 #define LOG_ERROR   1
@@ -219,7 +219,15 @@ public plugin_natives()
 
 public plugin_cfg()
 {
+    // Everything is applied on the NEXT frame, never inside the map-load frame. ExecConfig()
+    // flushes the engine command buffer with server_exec(); doing that while the map-change
+    // sequence is still running is the crash window — the buffer at that moment can hold the
+    // pending engine commands of the load itself. One frame later the buffer is clean.
+    set_task(0.1, "Task_Config");
+}
 
+public Task_Config()
+{
     new szLogsDir[96], szFmt[192], szMsg[224];
     get_localinfo("amxx_logsdir", szLogsDir, charsmax(szLogsDir));
     formatex(g_szLogPath, charsmax(g_szLogPath), "%s/RePruning.log", szLogsDir);
@@ -254,7 +262,7 @@ public plugin_cfg()
     Lang("INIT_3", szFmt, charsmax(szFmt));
     formatex(szMsg, charsmax(szMsg), szFmt, VERSION);
     server_print("[RePruning] %s", szMsg);
-    server_print("[RePruning] API: 7 natives + 3 forwards registered — include <repruning.inc> (library repruning)");
+    server_print("[RePruning] API: 12 natives + 3 forwards registered — include <repruning.inc> (library repruning)");
 
     new szMap[48];
     get_mapname(szMap, charsmax(szMap));
@@ -866,7 +874,9 @@ LoadLanguages()
                 continue;
 
             new iPos = contain(szLine, "=");
-            if (iPos < 1) {
+            // iPos is the length of the key part; a key longer than the key buffer would
+            // overflow szKey through copy() — such a line is dropped as malformed instead.
+            if (iPos < 1 || iPos >= sizeof(szKey)) {
                 Pruning_Log(LOG_ERROR, "lang %s: malformed line ^"%s^"", szPath, szLine);
                 continue;
             }
@@ -999,7 +1009,7 @@ BanListRemember(const szAuth[], iMinutes)
 
     new iTTL = get_pcvar_num(g_pBansTTL);
     if (iTTL > 0 && iMinutes > iTTL * 60) {
-        iExpires = iNow + iTTL * 60;
+        iExpires = iNow + iTTL * 3600;
         Pruning_Log(LOG_ERROR, "validation: ban %d min exceeds pruning_bans_ttl %d h — clamped", iMinutes, iTTL);
     }
 
@@ -1503,6 +1513,14 @@ public client_putinserver(id)
     Pruning_Log(LOG_DEBUG, "client #%d connected — passed file checks", get_user_userid(id));
 }
 
+public client_disconnected(id)
+{
+    // The report counter counts clients seen this map; without the decrement it would
+    // grow forever as players come and go.
+    if (g_iClientsConnected > 0)
+        g_iClientsConnected--;
+}
+
 public plugin_end()
 {
     Pruning_Log(LOG_INFO, "RePruning unloaded (errors total: %d)", g_iErrCount);
@@ -1729,8 +1747,8 @@ public ConCmd_BansImport(id)
             continue;
         }
 
-        if (iTTL > 0 && iExpires > iNow + iTTL * 60) {
-            iExpires = iNow + iTTL * 60;
+        if (iTTL > 0 && iExpires > iNow + iTTL * 3600) {
+            iExpires = iNow + iTTL * 3600;
             iClamped++;
         }
 

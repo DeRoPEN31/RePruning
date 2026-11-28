@@ -1,5 +1,7 @@
 # Languages
 
+> Applies to RePruning **v0.0.6**.
+
 Every message the plugin sends — the MOTD fix guide, the kick reasons, the startup info — is
 loaded from language files. The language is selected with the `pruning_lang` cvar:
 
